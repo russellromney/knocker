@@ -19,8 +19,6 @@ hero:
 
 Knocker is a Python-first inbound webhook inbox for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound events without adding a hosted control plane.
 
-> Pre-0.1.0. API may change; until the first release is cut, install from this repository rather than PyPI.
-
 Published package name: `knockerlite`. Python import name: `knocker`.
 
 Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker runs later in the same process against rows already committed to SQLite.

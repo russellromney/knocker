@@ -4,8 +4,6 @@ Python bindings for Knocker, a Python-first inbound webhook inbox on SQLite.
 
 Knocker stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
 
-> Pre-0.1.0. API may change.
-
 Published package name: `knockerlite`. Python import name: `knocker`.
 
 ## At a glance

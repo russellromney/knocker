@@ -6,8 +6,6 @@
 
 Knocker is for apps that already have an HTTP server, a SQLite database, and local business logic. It is not a hosted webhook relay, not a broker, and not a framework adapter package.
 
-> Pre-0.1.0. API may change.
-
 Published package name: `knockerlite`. Python import name: `knocker`.
 
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
