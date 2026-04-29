@@ -17,6 +17,8 @@
 - Added a minimal Python-first pruning surface with `prune_events(...)`, `prune_orphan_deliveries(...)`, and typed prune summary results.
 - Added an Astro/Starlight docs site for `knocker.dev`.
 - Added the Knocker logo assets to the repo and docs site.
+- Added `replay_delivery(delivery_id)` for explicit operator replay of one stored delivery body without mutating the canonical event payload.
+- Added local Python worker state snapshots and an optional `on_error` callback for worker-loop failures outside normal handler retry/dead-letter handling.
 
 ### Changed
 
@@ -33,6 +35,8 @@
 - Explicit retention pruning now deletes old `handled` / `ignored` events plus their linked deliveries and attempts, and can separately prune old orphan deliveries.
 - `replay(...)` and `requeue(...)` now validate accepted event statuses and remove stale live jobs for the same event and queue before enqueueing replacement work.
 - Duplicate ingest into an existing event, including a `dead` event, remains audit-only: it stores the new delivery and does not mutate event state or enqueue work.
+- Public Python classes and methods now carry concise docstrings, and the README/docs explain the `(event, tx)` atomic handler contract.
+- Split the Python binding and test suite into smaller files under the project line-count standard.
 
 ### Fixed
 
@@ -44,3 +48,5 @@
 - Python operator `limit` validation now rejects floats and strings instead of coercing them.
 - Stripe verification config now rejects bool, non-integer, and negative `tolerance_s` values.
 - Retention live-job cleanup now leaves malformed Honker payloads alone instead of attempting broad string coercion.
+- Lifecycle UDFs now fail fast when asked to mutate an unknown event id.
+- Worker stop now responds promptly while idle instead of waiting for a long poll timeout.

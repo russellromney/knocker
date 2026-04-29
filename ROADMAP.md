@@ -30,6 +30,7 @@ Knocker now keeps a small human-owned intent baseline alongside the roadmap:
 - `.intent/phases/003-operator-read-surface/` records the Python-first operator read/action surface that is now part of the baseline.
 - `.intent/phases/004-minimal-retention-and-pruning/` records the minimal explicit pruning surface that is now part of the baseline.
 - `.intent/phases/005-ship-readiness/` records the docs-site and final pre-release hardening pass.
+- `.intent/phases/006-public-surface-and-reliability-hardening/` records the pre-`0.1.0` response to the intensive codebase review.
 - `CHANGELOG.md` summarizes completed work after it lands.
 
 ## Current Status
@@ -43,6 +44,8 @@ Implemented in this repo today:
 - Python verified ingress for generic HMAC-SHA256 and Stripe
 - Binding-owned active-secret rotation for supported verifiers
 - Stable Python operator surface for `get_event`, `list_events`, `get_delivery`, `list_deliveries`, `ignore`, `replay`, and `requeue`
+- Explicit `replay_delivery(delivery_id)` operator recovery for processing one stored receipt body without mutating the canonical event payload
+- Local Python worker state snapshots and optional worker-loop `on_error` callbacks
 - Minimal explicit Python pruning surface for `prune_events` and `prune_orphan_deliveries`
 - Provider presets for Stripe and GitHub correlation metadata
 - Node contract pressure-test via a loadable SQLite extension

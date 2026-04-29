@@ -393,7 +393,7 @@ pub fn mark_processing(
     event_id: i64,
     attempt_count: i64,
 ) -> rusqlite::Result<i64> {
-    conn.execute(
+    let changed = conn.execute(
         "
         UPDATE knocker_events
         SET status='processing',
@@ -403,11 +403,12 @@ pub fn mark_processing(
         ",
         params![event_id, attempt_count],
     )?;
+    ensure_event_updated(changed, event_id, "processing")?;
     Ok(1)
 }
 
 pub fn mark_handled(conn: &Connection, event_id: i64, duration_ms: i64) -> rusqlite::Result<i64> {
-    conn.execute(
+    let changed = conn.execute(
         "
         UPDATE knocker_events
         SET status='handled',
@@ -417,6 +418,7 @@ pub fn mark_handled(conn: &Connection, event_id: i64, duration_ms: i64) -> rusql
         ",
         params![event_id],
     )?;
+    ensure_event_updated(changed, event_id, "handled")?;
     conn.execute(
         "
         INSERT INTO knocker_attempts (event_id, outcome, error, duration_ms)
@@ -436,7 +438,7 @@ pub fn mark_failed(
     duration_ms: i64,
 ) -> rusqlite::Result<i64> {
     let outcome = if terminal { "dead" } else { "failed" };
-    conn.execute(
+    let changed = conn.execute(
         "
         UPDATE knocker_events
         SET status=?2,
@@ -446,6 +448,7 @@ pub fn mark_failed(
         ",
         params![event_id, outcome, attempt_count, error],
     )?;
+    ensure_event_updated(changed, event_id, outcome)?;
     conn.execute(
         "
         INSERT INTO knocker_attempts (event_id, outcome, error, duration_ms)
@@ -457,7 +460,7 @@ pub fn mark_failed(
 }
 
 pub fn mark_ignored(conn: &Connection, event_id: i64, duration_ms: i64) -> rusqlite::Result<i64> {
-    conn.execute(
+    let changed = conn.execute(
         "
         UPDATE knocker_events
         SET status='ignored',
@@ -466,6 +469,7 @@ pub fn mark_ignored(conn: &Connection, event_id: i64, duration_ms: i64) -> rusql
         ",
         params![event_id],
     )?;
+    ensure_event_updated(changed, event_id, "ignored")?;
     conn.execute(
         "
         INSERT INTO knocker_attempts (event_id, outcome, error, duration_ms)
@@ -523,7 +527,7 @@ fn event_status(conn: &Connection, event_id: i64) -> rusqlite::Result<String> {
 }
 
 fn reset_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
-    conn.execute(
+    let changed = conn.execute(
         "
         UPDATE knocker_events
         SET status='received',
@@ -534,6 +538,7 @@ fn reset_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
         ",
         params![event_id],
     )?;
+    ensure_event_updated(changed, event_id, "reset")?;
     Ok(())
 }
 
@@ -565,10 +570,37 @@ fn delete_live_jobs_for_event(
     event_id: i64,
     queue_name: &str,
 ) -> rusqlite::Result<()> {
-    let payload = serde_json::json!({ "event_id": event_id }).to_string();
-    conn.execute(
-        "DELETE FROM _honker_live WHERE queue=?1 AND payload=?2",
-        params![queue_name, payload],
-    )?;
+    let mut stmt = conn.prepare("SELECT id, payload FROM _honker_live WHERE queue=?1")?;
+    let rows = stmt.query_map(params![queue_name], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut job_ids = Vec::new();
+    for row in rows {
+        let (job_id, payload) = row?;
+        if payload_event_id(&payload) == Some(event_id) {
+            job_ids.push(job_id);
+        }
+    }
+    for job_id in job_ids {
+        conn.execute("DELETE FROM _honker_live WHERE id=?1", params![job_id])?;
+    }
     Ok(())
+}
+
+fn ensure_event_updated(changed: usize, event_id: i64, action: &str) -> rusqlite::Result<()> {
+    if changed == 0 {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "event {} cannot be marked {}; event does not exist",
+            event_id, action
+        )));
+    }
+    Ok(())
+}
+
+fn payload_event_id(payload: &str) -> Option<i64> {
+    let value = serde_json::from_str::<serde_json::Value>(payload).ok()?;
+    if value.get("event_id")?.is_boolean() {
+        return None;
+    }
+    value.get("event_id")?.as_i64()
 }

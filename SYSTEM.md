@@ -31,7 +31,7 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 - The append-only `Delivery` rule is currently enforced by core code paths and tests rather than by DDL triggers.
 - Explicit retention pruning is the documented exception: old linked deliveries may be deleted when operators prune terminal events, and old orphan deliveries may be pruned separately.
 - `knocker_events` is the mutable source of truth for deduped processing state.
-- Honker job payloads should only point at stored event ids.
+- Honker job payloads should only point at stored event ids, with an optional stored delivery id for explicit operator delivery replay.
 - Ingress durability means the delivery insert, event correlation decision, optional event insert, and Honker enqueue commit together before HTTP success.
 - After a Honker job has been claimed, Knocker event state and Honker job disposition must commit together in one transaction.
 - A missing handler is a failure, not an `ignored` outcome.
@@ -43,6 +43,7 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 - Replay and requeue reuse the stored event row rather than minting a replacement event in v1.
 - `replay(event_id)` accepts only `handled`, `failed`, `dead`, and `ignored` events. `requeue(event_id)` accepts only `failed`, `dead`, and `ignored` events.
 - Explicit replay and requeue remove stale live Honker jobs for this Knocker queue before enqueueing replacement work.
+- `replay_delivery(delivery_id)` is explicit operator recovery for "process this stored receipt body." It accepts only linked deliveries whose event is `handled`, `failed`, `dead`, or `ignored`, uses the specified delivery body/metadata for the handler call, and does not mutate the canonical event payload.
 - The supported operator surface is Python-first and returns typed `Event` and `Delivery` objects rather than raw SQL rows.
 - `list_events(...)` and `list_deliveries(...)` are newest-first by default (`received_at DESC, id DESC`) and use inclusive integer-timestamp `since` filters plus bounded `limit` values.
 - `event_type` filtering is exact string equality.
@@ -57,6 +58,10 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 - Event pruning removes linked deliveries, cascades linked attempts, and removes stale `_honker_live` rows for this Knocker queue in one transaction.
 - If a worker later holds a claimed job for an explicitly pruned event, dispatch treats that job as stale retention residue and exits quietly instead of crashing.
 - Retention live-job cleanup treats malformed Honker payloads as non-matches rather than guessing through string coercion.
+- Lifecycle UDFs fail fast when asked to mutate an unknown event id.
+- Python worker state is local and non-durable. It is inspection help for host apps, not a durable control plane.
+- Handler functions receive `(event, tx)`. Business writes through `tx` commit atomically with Knocker's event transition and queue disposition.
+- Handlers are synchronous and should stay short and DB-local; slow outbound work belongs in app-owned follow-up jobs.
 
 ## Lifecycle
 
@@ -69,11 +74,13 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 7. The handler runs against the stored event inside a database transaction.
 8. Knocker records the attempt and marks the event `handled`, `failed`, `dead`, or `ignored`.
 9. Replay or requeue creates new work for the same stored event.
+10. Delivery replay creates new work for the same stored event while presenting the selected delivery body to the handler.
 
 ## Current baseline
 
 - The repo currently has the Rust core, Python binding, and Node contract smoke test.
 - The Python binding currently supports verified ingress for generic HMAC-SHA256 and Stripe, with binding-owned active-secret rotation plus provider presets for Stripe and GitHub correlation metadata.
-- The Python API now exposes a stable operator surface for `get_event(...)`, `list_events(...)`, `get_delivery(...)`, `list_deliveries(...)`, `ignore(...)`, `replay(...)`, `requeue(...)`, `prune_events(...)`, and `prune_orphan_deliveries(...)`.
+- The Python API now exposes a stable operator surface for `get_event(...)`, `list_events(...)`, `get_delivery(...)`, `list_deliveries(...)`, `ignore(...)`, `replay(...)`, `requeue(...)`, `replay_delivery(...)`, `prune_events(...)`, and `prune_orphan_deliveries(...)`.
+- The Python worker exposes local `worker_states()` snapshots and optional `on_error` callbacks for worker-loop failures outside normal handler retry/dead-letter handling.
 - The Python binding validates operator timestamps and limits as integers, and validates Stripe tolerance windows as non-negative integers.
 - Automatic retention jobs, richer retention policy, and admin endpoints are not yet part of the baseline.

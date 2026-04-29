@@ -73,4 +73,6 @@ If you do nothing, a Stripe preset fills in event-level extraction for you. For 
 
 Most users should call `receive(...)`.
 
-`ingest(...)` is the lower-level contract entry point when you already know the verification result and extracted metadata and want to drive the durable rows directly.
+`ingest(...)` is the lower-level contract entry point when you already know the verification result and extracted metadata and want to drive the durable rows directly. It is trusted ingress: passing `signature_valid=True` means Knocker will store and enqueue as valid without running a verifier.
+
+Generic HMAC signs only the request body. Use a provider-specific verifier or custom verification path when you need timestamp-based replay protection.

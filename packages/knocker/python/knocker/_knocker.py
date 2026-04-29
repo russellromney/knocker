@@ -1,249 +1,64 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from knocker._knocker_native import open as _core_open
+from knocker.coercion import (
+    _coerce_bool_filter,
+    _coerce_limit,
+    _coerce_older_than,
+    _coerce_prune_statuses,
+    _coerce_since,
+    _duration_ms,
+    _event_id_from_payload_json,
+    _optional_payload_int,
+    _required_payload_int,
+    _sql_placeholders,
+)
+from knocker.models import (
+    Delivery,
+    ErrorHandler,
+    Event,
+    Handler,
+    IngestResult,
+    PruneDeliveriesResult,
+    PruneEventsResult,
+    WorkerState,
+)
+from knocker.queue import (
+    _HonkerJob,
+    _HonkerQueue,
+    _QueueTransitionError,
+    _require_queue_transition,
+)
+from knocker.verifiers import (
+    _EndpointConfig,
+    _IngressRequest,
+    _VerificationResult,
+    _build_provider_verifier,
+    _build_request_verifier,
+    _coerce_extractor,
+    _extract_optional,
+    _provider_preset,
+)
 
 
-@dataclass(frozen=True, slots=True)
-class IngestResult:
-    delivery_id: int
-    event_id: Optional[int]
-    duplicate: bool
-    status_code: int
-
-
-@dataclass(frozen=True, slots=True)
-class Event:
-    id: int
-    endpoint: str
-    event_type: Optional[str]
-    provider_event_id: Optional[str]
-    provider_delivery_id: Optional[str]
-    dedupe_key: Optional[str]
-    status: str
-    attempt_count: int
-    headers: dict[str, Any]
-    query: dict[str, Any]
-    body: bytes
-    received_at: int
-    handled_at: Optional[int]
-    last_error: Optional[str]
-
-
-@dataclass(frozen=True, slots=True)
-class Delivery:
-    id: int
-    event_id: Optional[int]
-    endpoint: str
-    event_type: Optional[str]
-    provider_event_id: Optional[str]
-    provider_delivery_id: Optional[str]
-    dedupe_key: Optional[str]
-    method: str
-    headers: dict[str, Any]
-    query: dict[str, Any]
-    body: bytes
-    received_at: int
-    signature_valid: Optional[bool]
-    signature_error: Optional[str]
-
-
-@dataclass(frozen=True, slots=True)
-class PruneEventsResult:
-    events_pruned: int
-    attempts_pruned: int
-    deliveries_pruned: int
-    live_jobs_pruned: int
-
-
-@dataclass(frozen=True, slots=True)
-class PruneDeliveriesResult:
-    deliveries_pruned: int
-
-
-Handler = Callable[[Event, Any], None]
-KeyExtractor = Callable[["_IngressRequest"], Optional[str]]
 _UNSET = object()
 
 
-@dataclass(frozen=True, slots=True)
-class _VerificationResult:
-    valid: bool
-    error: Optional[str] = None
-
-
-@dataclass(frozen=True, slots=True)
-class _IngressRequest:
-    method: str
-    headers: dict[str, Any]
-    query: dict[str, Any]
-    body: bytes
-
-
-@dataclass(frozen=True, slots=True)
-class _EndpointConfig:
-    verifier: Optional["_RequestVerifier"] = None
-    delivery_key: Optional[KeyExtractor] = None
-    event_key: Optional[KeyExtractor] = None
-    event_type: Optional[KeyExtractor] = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ProviderPreset:
-    delivery_key: Optional[KeyExtractor] = None
-    event_key: Optional[KeyExtractor] = None
-    event_type: Optional[KeyExtractor] = None
-
-
-class _RequestVerifier:
-    def verify(self, body: bytes, headers: dict[str, Any]) -> _VerificationResult:
-        raise NotImplementedError
-
-
-@dataclass(frozen=True, slots=True)
-class _GenericHmacVerifier(_RequestVerifier):
-    header: str
-    secrets: tuple[bytes, ...]
-    prefix: Optional[str]
-
-    def verify(self, body: bytes, headers: dict[str, Any]) -> _VerificationResult:
-        header_value = _get_header(headers, self.header)
-        if header_value is None:
-            return _VerificationResult(False, f"missing signature header: {self.header}")
-        for secret in self.secrets:
-            digest = hmac.new(secret, body, hashlib.sha256).hexdigest()
-            expected = f"{self.prefix}{digest}" if self.prefix is not None else digest
-            if hmac.compare_digest(header_value, expected):
-                return _VerificationResult(True)
-        return _VerificationResult(False, "signature mismatch")
-
-
-@dataclass(frozen=True, slots=True)
-class _StripeVerifier(_RequestVerifier):
-    secrets: tuple[bytes, ...]
-    tolerance_s: int
-
-    def verify(self, body: bytes, headers: dict[str, Any]) -> _VerificationResult:
-        header_value = _get_header(headers, "stripe-signature")
-        if header_value is None:
-            return _VerificationResult(False, "missing signature header: stripe-signature")
-        try:
-            timestamp, signatures = _parse_stripe_signature(header_value)
-        except ValueError as exc:
-            return _VerificationResult(False, str(exc))
-        if abs(int(time.time()) - timestamp) > self.tolerance_s:
-            return _VerificationResult(False, "stripe signature timestamp outside tolerance")
-        signed_payload = f"{timestamp}.".encode("utf-8") + body
-        for secret in self.secrets:
-            expected = hmac.new(secret, signed_payload, hashlib.sha256).hexdigest()
-            for candidate in signatures:
-                if hmac.compare_digest(candidate, expected):
-                    return _VerificationResult(True)
-        return _VerificationResult(False, "stripe signature mismatch")
-
-
-@dataclass(frozen=True, slots=True)
-class _HonkerJob:
-    id: int
-    worker_id: str
-    attempts: int
-    claim_expires_at: int
-    payload: dict[str, Any]
-
-
-class _HonkerQueue:
-    def __init__(self, db: Any, name: str, visibility_timeout_s: int, max_attempts: int):
-        self.db = db
-        self.name = name
-        self.visibility_timeout_s = int(visibility_timeout_s)
-        self.max_attempts = int(max_attempts)
-
-    def claim_batch(self, worker_id: str, n: int) -> list[_HonkerJob]:
-        with self.db.transaction() as tx:
-            rows = tx.query(
-                "SELECT honker_claim_batch(?, ?, ?, ?) AS rows_json",
-                [self.name, worker_id, int(n), self.visibility_timeout_s],
-            )
-        data = json.loads(rows[0]["rows_json"])
-        return [
-            _HonkerJob(
-                id=int(row["id"]),
-                worker_id=row["worker_id"],
-                attempts=int(row["attempts"]),
-                claim_expires_at=int(row["claim_expires_at"]),
-                payload=json.loads(row["payload"]),
-            )
-            for row in data
-        ]
-
-    def ack(self, job_id: int, worker_id: str, tx: Any | None = None) -> bool:
-        if tx is not None:
-            rows = tx.query("SELECT honker_ack(?, ?) AS r", [int(job_id), worker_id])
-            return bool(rows[0]["r"])
-        with self.db.transaction() as own_tx:
-            rows = own_tx.query("SELECT honker_ack(?, ?) AS r", [int(job_id), worker_id])
-        return bool(rows[0]["r"])
-
-    def retry(self, job_id: int, worker_id: str, delay_s: int, error: str, tx: Any | None = None) -> bool:
-        if tx is not None:
-            rows = tx.query(
-                "SELECT honker_retry(?, ?, ?, ?) AS r",
-                [int(job_id), worker_id, int(delay_s), error],
-            )
-            return bool(rows[0]["r"])
-        with self.db.transaction() as own_tx:
-            rows = own_tx.query(
-                "SELECT honker_retry(?, ?, ?, ?) AS r",
-                [int(job_id), worker_id, int(delay_s), error],
-            )
-        return bool(rows[0]["r"])
-
-    def fail(self, job_id: int, worker_id: str, error: str, tx: Any | None = None) -> bool:
-        if tx is not None:
-            rows = tx.query("SELECT honker_fail(?, ?, ?) AS r", [int(job_id), worker_id, error])
-            return bool(rows[0]["r"])
-        with self.db.transaction() as own_tx:
-            rows = own_tx.query("SELECT honker_fail(?, ?, ?) AS r", [int(job_id), worker_id, error])
-        return bool(rows[0]["r"])
-
-    def claim(self, worker_id: str, idle_poll_s: float = 5.0) -> "_WorkerQueueIter":
-        return _WorkerQueueIter(self, worker_id, idle_poll_s)
-
-
-class _QueueTransitionError(RuntimeError):
-    pass
-
-
-class _WorkerQueueIter:
-    def __init__(self, queue: _HonkerQueue, worker_id: str, idle_poll_s: float):
-        self.queue = queue
-        self.worker_id = worker_id
-        self.idle_poll_s = float(idle_poll_s)
-        self._wal = queue.db.wal_events()
-
-    def __aiter__(self) -> "_WorkerQueueIter":
-        return self
-
-    async def __anext__(self) -> _HonkerJob:
-        while True:
-            jobs = self.queue.claim_batch(self.worker_id, 1)
-            if jobs:
-                return jobs[0]
-            try:
-                await asyncio.wait_for(self._wal.__anext__(), timeout=self.idle_poll_s)
-            except asyncio.TimeoutError:
-                continue
-
-
 class Knocker:
+    """Embeddable webhook inbox backed by SQLite and Honker.
+
+    Handlers are synchronous callables that receive ``(event, tx)``. Writes
+    performed through ``tx`` commit atomically with Knocker's event transition
+    and queue acknowledgement, so handlers should keep that work short and
+    DB-local.
+    """
+
     def __init__(
         self,
         db_path: str,
@@ -264,6 +79,7 @@ class Knocker:
         self.max_attempts = int(max_attempts)
         self._handlers: dict[tuple[str, Optional[str]], Handler] = {}
         self._endpoint_configs: dict[str, _EndpointConfig] = {}
+        self._worker_states: dict[str, WorkerState] = {}
 
     def add_endpoint(
         self,
@@ -277,6 +93,8 @@ class Knocker:
         event_key: Any = _UNSET,
         secrets: Any = _UNSET,
     ) -> None:
+        """Register or update an endpoint and its verification/extractor config."""
+
         if verification is not _UNSET and secrets is not _UNSET:
             raise ValueError("pass either verification=... or secrets=..., not both")
 
@@ -305,9 +123,6 @@ class Knocker:
             )
         self._endpoint_configs[name] = config
 
-    def endpoint(self, **kwargs: Any) -> None:
-        self.add_endpoint(**kwargs)
-
     def add_handler(
         self,
         *,
@@ -315,9 +130,13 @@ class Knocker:
         handler: Handler,
         event_type: Optional[str] = None,
     ) -> None:
+        """Register a synchronous ``handler(event, tx)`` for an endpoint."""
+
         self._handlers[(endpoint, event_type)] = handler
 
     def handle(self, *, endpoint: str, event_type: Optional[str] = None):
+        """Decorate a synchronous ``handler(event, tx)`` for an endpoint."""
+
         def decorate(fn: Handler) -> Handler:
             self.add_handler(endpoint=endpoint, event_type=event_type, handler=fn)
             return fn
@@ -339,6 +158,8 @@ class Knocker:
         signature_valid: Optional[bool] = True,
         signature_error: Optional[str] = None,
     ) -> IngestResult:
+        """Store a trusted low-level delivery, bypassing binding-owned verification."""
+
         headers_json = json.dumps(headers or {}, sort_keys=True)
         query_json = json.dumps(query or {}, sort_keys=True)
         signature_valid_value = None if signature_valid is None else int(bool(signature_valid))
@@ -385,6 +206,8 @@ class Knocker:
         provider_delivery_id: Optional[str] = None,
         dedupe_key: Optional[str] = None,
     ) -> IngestResult:
+        """Verify, extract metadata, store the delivery, and enqueue new events."""
+
         headers = headers or {}
         query = query or {}
         config = self._endpoint_configs.get(endpoint, _EndpointConfig())
@@ -418,6 +241,8 @@ class Knocker:
         )
 
     def get_event(self, event_id: int) -> Event:
+        """Return one deduped event row or raise ``KeyError``."""
+
         event = _get_event_or_none(self.db, event_id)
         if event is None:
             raise KeyError(f"unknown event id: {event_id}")
@@ -432,6 +257,8 @@ class Knocker:
         since: Optional[int] = None,
         limit: int = 100,
     ) -> list[Event]:
+        """List events newest-first using AND-composed filters."""
+
         sql = """
             SELECT
                 e.id,
@@ -472,32 +299,12 @@ class Knocker:
         return [_event_from_row(row) for row in self.db.query(sql, params)]
 
     def get_delivery(self, delivery_id: int) -> Delivery:
-        rows = self.db.query(
-            """
-            SELECT
-                d.id,
-                d.event_id,
-                ep.name AS endpoint,
-                d.event_type,
-                d.provider_event_id,
-                d.provider_delivery_id,
-                d.dedupe_key,
-                d.method,
-                d.headers_json,
-                d.query_json,
-                d.body_blob,
-                d.received_at,
-                d.signature_valid,
-                d.signature_error
-            FROM knocker_deliveries d
-            JOIN knocker_endpoints ep ON ep.id = d.endpoint_id
-            WHERE d.id=?
-            """,
-            [int(delivery_id)],
-        )
-        if not rows:
+        """Return one append-only delivery row or raise ``KeyError``."""
+
+        delivery = _get_delivery_or_none(self.db, delivery_id)
+        if delivery is None:
             raise KeyError(f"unknown delivery id: {delivery_id}")
-        return _delivery_from_row(rows[0])
+        return delivery
 
     def list_deliveries(
         self,
@@ -509,6 +316,8 @@ class Knocker:
         since: Optional[int] = None,
         limit: int = 100,
     ) -> list[Delivery]:
+        """List delivery audit rows newest-first using AND-composed filters."""
+
         sql = """
             SELECT
                 d.id,
@@ -554,6 +363,8 @@ class Knocker:
         return [_delivery_from_row(row) for row in self.db.query(sql, params)]
 
     def ignore(self, event_id: int) -> None:
+        """Move a received, failed, or dead event to ``ignored`` explicitly."""
+
         with self.db.transaction() as tx:
             rows = tx.query("SELECT status FROM knocker_events WHERE id=?", [int(event_id)])
             if not rows:
@@ -566,6 +377,8 @@ class Knocker:
             tx.query("SELECT knocker_mark_ignored(?, ?)", [int(event_id), 0])
 
     def replay(self, event_id: int) -> None:
+        """Replay a handled, failed, dead, or ignored event using its canonical payload."""
+
         with self.db.transaction() as tx:
             status = _event_status_or_raise(tx, int(event_id))
             if status not in {"handled", "failed", "dead", "ignored"}:
@@ -576,6 +389,8 @@ class Knocker:
             )
 
     def requeue(self, event_id: int) -> None:
+        """Requeue a failed, dead, or ignored event using its canonical payload."""
+
         with self.db.transaction() as tx:
             status = _event_status_or_raise(tx, int(event_id))
             if status not in {"failed", "dead", "ignored"}:
@@ -585,6 +400,53 @@ class Knocker:
                 [int(event_id), self.queue.name, self.max_attempts],
             )
 
+    def replay_delivery(self, delivery_id: int) -> None:
+        """Replay one stored delivery body through its linked event's handler.
+
+        This is an explicit operator action. It rejects unknown or orphan
+        deliveries and never mutates the canonical event payload.
+        """
+
+        with self.db.transaction() as tx:
+            delivery = _get_delivery_or_none(tx, int(delivery_id))
+            if delivery is None:
+                raise KeyError(f"unknown delivery id: {delivery_id}")
+            if delivery.event_id is None:
+                raise ValueError(f"delivery {delivery_id} is not linked to an event")
+            status = _event_status_or_raise(tx, delivery.event_id)
+            if status not in {"handled", "failed", "dead", "ignored"}:
+                raise ValueError(
+                    f"event {delivery.event_id} with status {status} cannot replay a delivery"
+                )
+            live_job_ids = self._stale_live_job_ids(tx, [delivery.event_id])
+            self._delete_live_jobs_by_id(tx, live_job_ids)
+            tx.query(
+                """
+                UPDATE knocker_events
+                SET status='received',
+                    attempt_count=0,
+                    handled_at=NULL,
+                    last_error=NULL
+                WHERE id=?
+                """,
+                [delivery.event_id],
+            )
+            tx.query(
+                "SELECT honker_enqueue(?, ?, ?, ?, ?, ?, ?) AS job_id",
+                [
+                    self.queue.name,
+                    json.dumps(
+                        {"event_id": delivery.event_id, "delivery_id": delivery.id},
+                        sort_keys=True,
+                    ),
+                    None,
+                    None,
+                    0,
+                    self.max_attempts,
+                    None,
+                ],
+            )
+
     def prune_events(
         self,
         *,
@@ -592,6 +454,8 @@ class Knocker:
         older_than: int,
         limit: int,
     ) -> PruneEventsResult:
+        """Prune old terminal events and their linked attempts, deliveries, and live jobs."""
+
         resolved_statuses = _coerce_prune_statuses(statuses)
         older_than_value = _coerce_older_than(older_than)
         limit_value = _coerce_limit(limit)
@@ -623,6 +487,8 @@ class Knocker:
         older_than: int,
         limit: int,
     ) -> PruneDeliveriesResult:
+        """Prune old orphan delivery rows using a strict ``received_at < older_than`` cutoff."""
+
         older_than_value = _coerce_older_than(older_than)
         limit_value = _coerce_limit(limit)
         with self.db.transaction() as tx:
@@ -749,21 +615,68 @@ class Knocker:
         worker_id: Optional[str] = None,
         stop_event: Optional[asyncio.Event] = None,
         idle_poll_s: float = 0.1,
+        on_error: Optional[ErrorHandler] = None,
     ) -> None:
+        """Claim and dispatch jobs until stopped.
+
+        Handler exceptions use Knocker's retry/dead-letter path. Worker-loop
+        exceptions outside normal handler handling update local worker state,
+        call ``on_error`` when provided, and are re-raised for app-owned
+        supervision.
+        """
+
         worker_id = worker_id or f"knocker-{uuid.uuid4().hex[:8]}"
+        self._set_worker_state(worker_id, running=True, current_event_id=None)
         claims = self.queue.claim(worker_id, idle_poll_s=idle_poll_s)
-        while True:
-            if stop_event is not None and stop_event.is_set():
-                return
-            try:
-                job = await asyncio.wait_for(claims.__anext__(), timeout=idle_poll_s + 0.05)
-            except asyncio.TimeoutError:
-                continue
-            await self._dispatch_job(job)
+        try:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return
+                claim_task = asyncio.create_task(claims.__anext__())
+                if stop_event is not None:
+                    stop_task = asyncio.create_task(stop_event.wait())
+                    done, pending = await asyncio.wait(
+                        {claim_task, stop_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if stop_task in done:
+                        claim_task.cancel()
+                        try:
+                            await claim_task
+                        except asyncio.CancelledError:
+                            pass
+                        return
+                    stop_task.cancel()
+                    for task in pending:
+                        task.cancel()
+                    job = claim_task.result()
+                else:
+                    job = await claim_task
+                try:
+                    await self._dispatch_job(job)
+                except Exception as exc:
+                    self._set_worker_state(
+                        worker_id,
+                        current_event_id=None,
+                        last_error=str(exc),
+                    )
+                    if on_error is not None:
+                        maybe_awaitable = on_error(exc)
+                        if asyncio.iscoroutine(maybe_awaitable):
+                            await maybe_awaitable
+                    raise
+        finally:
+            self._set_worker_state(worker_id, running=False, current_event_id=None)
+
+    def worker_states(self) -> list[WorkerState]:
+        """Return local, non-durable snapshots for workers run by this process."""
+
+        return [self._worker_states[key] for key in sorted(self._worker_states)]
 
     async def _dispatch_job(self, job: _HonkerJob) -> None:
         start = time.perf_counter()
-        event_id = int(job.payload["event_id"])
+        event_id = _required_payload_int(job.payload, "event_id")
+        self._set_worker_state(job.worker_id, current_event_id=event_id)
         try:
             with self.db.transaction() as tx:
                 event = _get_event_or_none(tx, event_id)
@@ -777,7 +690,18 @@ class Knocker:
                     # quietly rather than crashing the worker if the claim already expired.
                     self.queue.ack(job.id, job.worker_id, tx=tx)
                     return
-                handler = self._resolve_handler(event)
+                delivery_id = _optional_payload_int(job.payload, "delivery_id")
+                handler_event = event
+                if delivery_id is not None:
+                    delivery = _get_delivery_or_none(tx, delivery_id)
+                    if delivery is None:
+                        raise RuntimeError(f"unknown delivery id in job payload: {delivery_id}")
+                    if delivery.event_id != event_id:
+                        raise RuntimeError(
+                            f"delivery {delivery_id} is not linked to event {event_id}"
+                        )
+                    handler_event = _event_from_delivery(event, delivery)
+                handler = self._resolve_handler(handler_event)
                 if handler is None:
                     duration_ms = _duration_ms(start)
                     tx.query(
@@ -786,8 +710,8 @@ class Knocker:
                             event_id,
                             int(job.attempts),
                             (
-                                f"no handler registered for endpoint={event.endpoint!r} "
-                                f"event_type={event.event_type!r}"
+                                f"no handler registered for endpoint={handler_event.endpoint!r} "
+                                f"event_type={handler_event.event_type!r}"
                             ),
                             1,
                             duration_ms,
@@ -798,8 +722,8 @@ class Knocker:
                             job.id,
                             job.worker_id,
                             (
-                                f"no handler registered for endpoint={event.endpoint!r} "
-                                f"event_type={event.event_type!r}"
+                                f"no handler registered for endpoint={handler_event.endpoint!r} "
+                                f"event_type={handler_event.event_type!r}"
                             ),
                             tx=tx,
                         ),
@@ -809,7 +733,7 @@ class Knocker:
                     )
                     return
                 tx.query("SELECT knocker_mark_processing(?, ?)", [event_id, job.attempts])
-                handler(event, tx)
+                handler(handler_event, tx)
                 duration_ms = _duration_ms(start)
                 tx.query("SELECT knocker_mark_handled(?, ?)", [event_id, duration_ms])
                 _require_queue_transition(
@@ -822,6 +746,8 @@ class Knocker:
             raise
         except Exception as exc:
             await self._fail_job(job, event_id, exc, _duration_ms(start))
+        finally:
+            self._set_worker_state(job.worker_id, current_event_id=None)
 
     async def _fail_job(
         self,
@@ -856,6 +782,27 @@ class Knocker:
     def _resolve_handler(self, event: Event) -> Optional[Handler]:
         return self._handlers.get((event.endpoint, event.event_type)) or self._handlers.get(
             (event.endpoint, None)
+        )
+
+    def _set_worker_state(
+        self,
+        worker_id: str,
+        *,
+        running: Any = _UNSET,
+        current_event_id: Any = _UNSET,
+        last_error: Any = _UNSET,
+    ) -> None:
+        previous = self._worker_states.get(
+            worker_id,
+            WorkerState(worker_id=worker_id, running=False, current_event_id=None, last_error=None),
+        )
+        self._worker_states[worker_id] = WorkerState(
+            worker_id=worker_id,
+            running=previous.running if running is _UNSET else bool(running),
+            current_event_id=(
+                previous.current_event_id if current_event_id is _UNSET else current_event_id
+            ),
+            last_error=previous.last_error if last_error is _UNSET else last_error,
         )
 
 
@@ -907,6 +854,35 @@ def _get_event_or_none(queryable: Any, event_id: int) -> Optional[Event]:
     return _event_from_row(rows[0])
 
 
+def _get_delivery_or_none(queryable: Any, delivery_id: int) -> Optional[Delivery]:
+    rows = queryable.query(
+        """
+        SELECT
+            d.id,
+            d.event_id,
+            ep.name AS endpoint,
+            d.event_type,
+            d.provider_event_id,
+            d.provider_delivery_id,
+            d.dedupe_key,
+            d.method,
+            d.headers_json,
+            d.query_json,
+            d.body_blob,
+            d.received_at,
+            d.signature_valid,
+            d.signature_error
+        FROM knocker_deliveries d
+        JOIN knocker_endpoints ep ON ep.id = d.endpoint_id
+        WHERE d.id=?
+        """,
+        [int(delivery_id)],
+    )
+    if not rows:
+        return None
+    return _delivery_from_row(rows[0])
+
+
 def _event_status_or_raise(queryable: Any, event_id: int) -> str:
     rows = queryable.query("SELECT status FROM knocker_events WHERE id=?", [int(event_id)])
     if not rows:
@@ -934,244 +910,26 @@ def _delivery_from_row(row: dict[str, Any]) -> Delivery:
     )
 
 
-def _coerce_limit(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError("limit must be an integer")
-    limit = value
-    if not 1 <= limit <= 1000:
-        raise ValueError("limit must be between 1 and 1000")
-    return limit
-
-
-def _coerce_older_than(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError("older_than must be an integer timestamp")
-    return value
-
-
-def _coerce_since(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError("since must be an integer timestamp")
-    return value
-
-
-def _coerce_bool_filter(value: Any, name: str) -> bool:
-    if not isinstance(value, bool):
-        raise TypeError(f"{name} must be a bool")
-    return value
-
-
-def _coerce_prune_statuses(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        raise TypeError("statuses must be a non-empty list or tuple of strings")
-    if not isinstance(value, (list, tuple)):
-        raise TypeError("statuses must be a non-empty list or tuple of strings")
-    if not value:
-        raise ValueError("statuses must be a non-empty list or tuple")
-    allowed = {"handled", "ignored"}
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for status in value:
-        if not isinstance(status, str):
-            raise TypeError("statuses must contain only strings")
-        if status not in allowed:
-            raise ValueError("statuses must contain only 'handled' or 'ignored'")
-        if status not in seen:
-            ordered.append(status)
-            seen.add(status)
-    return tuple(ordered)
-
-
-def _sql_placeholders(count: int) -> str:
-    return ", ".join("?" for _ in range(count))
-
-
-def _event_id_from_payload_json(payload: Any) -> Optional[int]:
-    if isinstance(payload, bytes):
-        try:
-            payload_text = payload.decode("utf-8")
-        except UnicodeDecodeError:
-            return None
-    elif isinstance(payload, str):
-        payload_text = payload
-    else:
-        return None
-    try:
-        value = json.loads(payload_text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        # Safe by default: malformed payloads are left alone rather than
-        # accidentally matched and pruned.
-        return None
-    if not isinstance(value, dict) or "event_id" not in value:
-        return None
-    event_id = value["event_id"]
-    if isinstance(event_id, bool):
-        return None
-    try:
-        return int(event_id)
-    except (TypeError, ValueError):
-        return None
-
-
-def _duration_ms(start: float) -> int:
-    return int((time.perf_counter() - start) * 1000)
-
-
-def _build_request_verifier(verification: Any) -> Optional[_RequestVerifier]:
-    if verification is None:
-        return None
-    if not isinstance(verification, dict):
-        raise TypeError("verification must be a dict or None")
-    kind = str(verification.get("kind", "")).lower()
-    secrets = _coerce_secrets_from_verification(verification)
-    if kind in {"hmac-sha256", "generic-hmac-sha256", "hmac"}:
-        header = verification.get("header")
-        if not isinstance(header, str) or not header:
-            raise ValueError("generic hmac verification requires a non-empty 'header'")
-        prefix_value = verification.get("prefix", "sha256=")
-        if prefix_value is not None and not isinstance(prefix_value, str):
-            raise TypeError("verification 'prefix' must be a string or None")
-        return _GenericHmacVerifier(header=header, secrets=secrets, prefix=prefix_value)
-    if kind == "stripe":
-        tolerance_value = verification.get("tolerance_s", 300)
-        if isinstance(tolerance_value, bool) or not isinstance(tolerance_value, int):
-            raise TypeError("stripe verification 'tolerance_s' must be an integer")
-        if tolerance_value < 0:
-            raise ValueError("stripe verification 'tolerance_s' must be non-negative")
-        tolerance_s = tolerance_value
-        return _StripeVerifier(secrets=secrets, tolerance_s=tolerance_s)
-    raise ValueError(f"unsupported verification kind: {kind!r}")
-
-
-def _build_provider_verifier(provider: Optional[str], secrets: Any) -> _RequestVerifier:
-    secrets_tuple = _coerce_secret_values(secrets)
-    provider_name = (provider or "").lower()
-    if provider_name == "stripe":
-        # Stripe's preset uses the same default timestamp window as explicit
-        # Stripe verification config.
-        return _StripeVerifier(secrets=secrets_tuple, tolerance_s=300)
-    raise ValueError(
-        f"provider preset verification is not supported for {provider!r}; use verification=..."
+def _event_from_delivery(event: Event, delivery: Delivery) -> Event:
+    return Event(
+        id=event.id,
+        endpoint=delivery.endpoint,
+        event_type=delivery.event_type,
+        provider_event_id=delivery.provider_event_id,
+        provider_delivery_id=delivery.provider_delivery_id,
+        dedupe_key=delivery.dedupe_key,
+        status=event.status,
+        attempt_count=event.attempt_count,
+        headers=delivery.headers,
+        query=delivery.query,
+        body=delivery.body,
+        received_at=event.received_at,
+        handled_at=event.handled_at,
+        last_error=event.last_error,
     )
 
 
-def _provider_preset(provider: Optional[str]) -> _ProviderPreset:
-    provider_name = (provider or "").lower()
-    if provider_name == "stripe":
-        return _ProviderPreset(
-            event_key=lambda request: _json_string_field(request.body, "id"),
-            event_type=lambda request: _json_string_field(request.body, "type"),
-        )
-    if provider_name == "github":
-        return _ProviderPreset(
-            delivery_key=lambda request: _get_header(request.headers, "x-github-delivery"),
-            event_type=lambda request: _get_header(request.headers, "x-github-event"),
-        )
-    return _ProviderPreset()
-
-
-def _coerce_extractor(value: Any, name: str) -> Optional[KeyExtractor]:
-    if value is None:
-        return None
-    if not callable(value):
-        raise TypeError(f"{name} must be callable or None")
-    return value
-
-
-def _extract_optional(extractor: Optional[KeyExtractor], request: _IngressRequest) -> Optional[str]:
-    if extractor is None:
-        return None
-    value = extractor(request)
-    if value is None:
-        return None
-    return str(value)
-
-
-def _coerce_secrets_from_verification(verification: dict[str, Any]) -> tuple[bytes, ...]:
-    if "secrets" in verification:
-        raw = verification["secrets"]
-        if not isinstance(raw, (list, tuple)):
-            raise TypeError("verification 'secrets' must be a list or tuple")
-        values = raw
-    elif "secret" in verification:
-        values = [verification["secret"]]
-    else:
-        raise ValueError("verification requires 'secret' or 'secrets'")
-    return _coerce_secret_values(values)
-
-
-def _coerce_secret_values(values: Any) -> tuple[bytes, ...]:
-    if isinstance(values, (bytes, str)):
-        iterable = [values]
-    elif isinstance(values, (list, tuple)):
-        iterable = list(values)
-    else:
-        raise TypeError("secrets must be a str, bytes, list, or tuple")
-    secrets = tuple(_coerce_secret(value) for value in iterable)
-    if not secrets:
-        raise ValueError("verification requires at least one secret")
-    return secrets
-
-
-def _coerce_secret(value: Any) -> bytes:
-    if isinstance(value, bytes):
-        if not value:
-            raise ValueError("verification secrets must be non-empty")
-        return value
-    if isinstance(value, str):
-        if not value:
-            raise ValueError("verification secrets must be non-empty")
-        return value.encode("utf-8")
-    raise TypeError("verification secrets must be str or bytes")
-
-
-def _get_header(headers: dict[str, Any], name: str) -> Optional[str]:
-    target = name.lower()
-    for key, value in headers.items():
-        if str(key).lower() == target:
-            return str(value)
-    return None
-
-
-def _parse_stripe_signature(header_value: str) -> tuple[int, list[str]]:
-    timestamp: Optional[int] = None
-    signatures: list[str] = []
-    for part in header_value.split(","):
-        key, sep, value = part.partition("=")
-        if not sep:
-            continue
-        key = key.strip()
-        value = value.strip()
-        if key == "t":
-            timestamp = int(value)
-        elif key == "v1" and value:
-            signatures.append(value)
-    if timestamp is None:
-        raise ValueError("stripe signature missing timestamp")
-    if not signatures:
-        raise ValueError("stripe signature missing v1 digest")
-    return timestamp, signatures
-
-
-def _json_string_field(body: bytes, field: str) -> Optional[str]:
-    try:
-        value = json.loads(body)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(value, dict):
-        return None
-    result = value.get(field)
-    if result is None:
-        return None
-    return str(result)
-
-
-def _require_queue_transition(ok: bool, *, action: str, job_id: int, event_id: int) -> None:
-    if not ok:
-        raise _QueueTransitionError(
-            f"honker {action} failed for job_id={job_id} event_id={event_id}; claim no longer valid"
-        )
-
-
 def open(path: str, **kwargs: Any) -> Knocker:
+    """Open or bootstrap a Knocker database at ``path``."""
+
     return Knocker(path, **kwargs)

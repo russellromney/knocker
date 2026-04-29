@@ -804,6 +804,38 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_udfs_fail_on_unknown_event_ids() {
+        let conn = open_test_conn();
+        bootstrap_knocker_schema(&conn).unwrap();
+
+        let calls = [
+            "SELECT knocker_mark_processing(?1, ?2)",
+            "SELECT knocker_mark_handled(?1, ?2)",
+            "SELECT knocker_mark_failed(?1, ?2, ?3, ?4, ?5)",
+            "SELECT knocker_mark_ignored(?1, ?2)",
+        ];
+
+        let processing = conn.query_row(calls[0], params![404i64, 1i64], |_| Ok(()));
+        let handled = conn.query_row(calls[1], params![404i64, 10i64], |_| Ok(()));
+        let failed = conn.query_row(
+            calls[2],
+            params![404i64, 1i64, "boom", 1i64, 10i64],
+            |_| Ok(()),
+        );
+        let ignored = conn.query_row(calls[3], params![404i64, 10i64], |_| Ok(()));
+
+        assert!(processing.is_err());
+        assert!(handled.is_err());
+        assert!(failed.is_err());
+        assert!(ignored.is_err());
+
+        let attempt_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knocker_attempts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(attempt_count, 0);
+    }
+
+    #[test]
     fn deleting_event_cascades_attempts_when_foreign_keys_are_enabled() {
         let conn = open_test_conn();
         bootstrap_knocker_schema(&conn).unwrap();
@@ -930,6 +962,69 @@ mod tests {
         .unwrap();
         conn.query_row(
             "SELECT knocker_replay(?1, ?2, ?3)",
+            params![1i64, "knocker.events", 3i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        let queue_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _honker_live WHERE queue='knocker.events'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(queue_count, 1);
+    }
+
+    #[test]
+    fn requeue_clears_live_jobs_with_delivery_replay_payloads() {
+        let conn = open_test_conn();
+        bootstrap_knocker_schema(&conn).unwrap();
+        insert_endpoint(&conn, "stripe", "/webhooks/stripe", "stripe");
+        conn.query_row(
+            "SELECT knocker_ingest(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                "stripe",
+                "POST",
+                "{}",
+                b"{}".to_vec(),
+                "{}",
+                1,
+                Option::<String>::None,
+                Option::<String>::None,
+                Some("delivery_replay"),
+                Option::<String>::None,
+                Option::<String>::None,
+                "knocker.events",
+                3,
+            ],
+            |_| Ok(()),
+        )
+        .unwrap();
+        conn.query_row(
+            "SELECT knocker_mark_failed(?1, ?2, ?3, ?4, ?5)",
+            params![1i64, 1i64, "boom", 1i64, 10i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+        conn.query_row(
+            "SELECT honker_enqueue(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                "knocker.events",
+                serde_json::json!({"event_id": 1, "delivery_id": 1}).to_string(),
+                Option::<i64>::None,
+                Option::<i64>::None,
+                0i64,
+                3i64,
+                Option::<i64>::None,
+            ],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        conn.query_row(
+            "SELECT knocker_requeue(?1, ?2, ?3)",
             params![1i64, "knocker.events", 3i64],
             |_| Ok(()),
         )

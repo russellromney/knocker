@@ -12,6 +12,8 @@ Knocker is an embeddable inbound webhook inbox for apps that already have:
 - a SQLite database
 - business logic that wants to react to inbound events
 
+Docs live at [knocker.dev](https://knocker.dev).
+
 Knocker is a library, not a service. The core promise is:
 
 - one process
@@ -95,6 +97,8 @@ app.add_endpoint(
 
 @app.handle(endpoint="stripe", event_type="checkout.session.completed")
 def handle_checkout(event, tx):
+    # Business writes through tx commit atomically with Knocker's handled
+    # transition and queue ack.
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
 
 result = app.receive(
@@ -109,9 +113,11 @@ assert result.status_code == 204
 assert result.event_id is not None
 ```
 
-`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method still exists when you want to drive the durable contract directly.
+`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress: it bypasses binding-owned verification and is for callers that already know the verification outcome.
 
 Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to an `Event`, and the worker runs later in the same process against stored events from SQLite.
+
+Handlers are synchronous and run while Knocker holds the work transaction. Keep them short and DB-local; put slow outbound work into app-owned follow-up jobs.
 
 The Python operator surface can list and inspect stored events and deliveries:
 
@@ -121,6 +127,9 @@ invalid = app.list_deliveries(signature_valid=False, orphaned=True, limit=50)
 delivery = app.get_delivery(result.delivery_id)
 event_deliveries = app.list_deliveries(event_id=result.event_id)
 app.ignore(result.event_id)
+app.replay(result.event_id)          # handled, failed, dead, ignored
+app.requeue(result.event_id)         # failed, dead, ignored
+app.replay_delivery(delivery.id)     # explicit: process this stored delivery body
 
 # Preview before prune using the existing read surface.
 handled = app.list_events(status="handled", since=0, limit=50)
@@ -129,6 +138,10 @@ handled = app.list_events(status="handled", since=0, limit=50)
 summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
 orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 ```
+
+Provider redelivery of an already-dead event is audit-only: Knocker stores the new `Delivery` but does not mutate or enqueue the existing `Event`. Recovery is explicit via `requeue(...)` or `replay_delivery(...)`.
+
+`run_worker(...)` is intentionally small. It exposes local `worker_states()` and an optional `on_error` callback, but host apps own restart/supervision policy.
 
 ## Intent
 

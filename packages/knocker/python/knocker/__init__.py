@@ -1,11 +1,11 @@
-from ._knocker import (
+from ._knocker import Knocker, open
+from .models import (
     Delivery,
     Event,
     IngestResult,
-    Knocker,
     PruneDeliveriesResult,
     PruneEventsResult,
-    open,
+    WorkerState,
 )
 
 __all__ = [
@@ -15,5 +15,6 @@ __all__ = [
     "Knocker",
     "PruneDeliveriesResult",
     "PruneEventsResult",
+    "WorkerState",
     "open",
 ]

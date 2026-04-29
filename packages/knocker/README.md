@@ -19,6 +19,8 @@ app.add_endpoint(
 
 @app.handle(endpoint="stripe", event_type="checkout.session.completed")
 def handle_checkout(event, tx):
+    # Writes through tx commit atomically with Knocker's handled transition
+    # and queue acknowledgement.
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
 
 result = app.receive(
@@ -53,7 +55,9 @@ The point is simple:
 
 Knocker is not a hosted control plane and not a generic queue wrapper.
 
-Use `receive(...)` for the binding-owned verified-ingress path. Use `ingest(...)` when you want the lower-level durable contract directly.
+See [knocker.dev](https://knocker.dev) for guides.
+
+Use `receive(...)` for the binding-owned verified-ingress path. Use `ingest(...)` only when you already know the verification outcome and want the trusted lower-level durable contract directly.
 
 Every inbound request is stored as a `Delivery`, and valid requests create or correlate to a stored `Event`. The Python operator surface exposes stable audit/debug reads and event-level recovery actions:
 
@@ -63,9 +67,14 @@ invalid = app.list_deliveries(signature_valid=False, orphaned=True, limit=50)
 delivery = app.get_delivery(result.delivery_id)
 deliveries = app.list_deliveries(event_id=result.event_id)
 app.ignore(result.event_id)
+app.replay(result.event_id)
+app.requeue(result.event_id)
+app.replay_delivery(delivery.id)
 
 # Preview candidates with the read surface, then prune explicitly.
 handled = app.list_events(status="handled", since=0, limit=50)
 summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
 orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 ```
+
+Handlers are synchronous and should stay short and DB-local. Slow outbound work belongs in app-owned follow-up jobs, and production apps should wrap `run_worker(...)` in their own restart/supervision harness.

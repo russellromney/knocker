@@ -43,7 +43,9 @@ def handle_checkout(event, tx):
     )
 ```
 
-Handlers receive a stored `Event`, not a raw request object. They run later against rows already committed to SQLite.
+Handlers receive `(event, tx)`, not a raw request object. They run later against rows already committed to SQLite.
+
+Writes through `tx` commit atomically with Knocker's `handled` transition and queue acknowledgement. Keep handlers synchronous, short, and DB-local; if you need outbound HTTP or slow work, enqueue an app-owned follow-up job from inside the transaction.
 
 ## Receive a webhook
 
@@ -77,6 +79,8 @@ asyncio.run(main())
 ```
 
 The worker claims queued event jobs from Honker and dispatches them to your registered handlers.
+
+`run_worker(...)` is a library primitive, not a daemon supervisor. In production, wrap it in your app's restart policy. You can inspect local process state with `app.worker_states()` and pass `on_error=...` for worker-loop failures outside normal handler retry/dead-letter handling.
 
 ## Inspect what landed
 

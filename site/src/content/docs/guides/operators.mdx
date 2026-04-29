@@ -53,13 +53,19 @@ Use `Event` rows for processing identity and `Delivery` rows for receipt-level a
 app.ignore(event.id)
 app.replay(event.id)
 app.requeue(event.id)
+app.replay_delivery(delivery.id)
 ```
 
 Current action semantics:
 
 - `ignore(...)` is allowed from `received`, `failed`, or `dead`
 - `ignore(...)` is a no-op when the event is already `ignored`
-- `replay(...)` and `requeue(...)` operate at the event level, not the delivery level
+- `replay(...)` is allowed from `handled`, `failed`, `dead`, or `ignored`
+- `requeue(...)` is allowed from `failed`, `dead`, or `ignored`
+- `replay(...)` and `requeue(...)` use the canonical `Event` payload
+- `replay_delivery(...)` is explicit and delivery-level: it processes the specified stored `Delivery` body through the linked event's handler without mutating the canonical `Event` payload
+
+Provider redelivery of a dead event is audit-only. Knocker stores the new `Delivery`, keeps duplicate ingest non-mutating, and waits for an operator to call `requeue(...)` or `replay_delivery(...)`.
 
 ## Concurrency model
 

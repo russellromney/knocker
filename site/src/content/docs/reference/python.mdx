@@ -32,6 +32,8 @@ def handle_checkout(event, tx):
     ...
 ```
 
+Handlers receive `(event, tx)`. Business writes through `tx` commit atomically with Knocker's event transition and queue ack. Handlers are synchronous; keep them short and DB-local.
+
 ## Ingress
 
 ```python
@@ -60,6 +62,8 @@ result = app.ingest(
 )
 ```
 
+`ingest(...)` is trusted low-level ingress. It bypasses binding-owned verification by default, so most applications should call `receive(...)`.
+
 ## Reads
 
 ```python
@@ -76,7 +80,26 @@ deliveries = app.list_deliveries(limit=50)
 app.ignore(42)
 app.replay(42)
 app.requeue(42)
+app.replay_delivery(99)
 ```
+
+Accepted statuses:
+
+- `ignore(...)`: `received`, `failed`, `dead`; no-op for already `ignored`
+- `replay(...)`: `handled`, `failed`, `dead`, `ignored`
+- `requeue(...)`: `failed`, `dead`, `ignored`
+- `replay_delivery(...)`: linked delivery whose event is `handled`, `failed`, `dead`, or `ignored`
+
+`replay_delivery(...)` uses the specified `Delivery` body for the handler call and does not rewrite the canonical `Event` payload.
+
+## Worker
+
+```python
+await app.run_worker(stop_event=stop, on_error=report_worker_error)
+states = app.worker_states()
+```
+
+Worker state is local and non-durable. Host apps own restart/supervision policy.
 
 ## Retention
 
@@ -138,3 +161,10 @@ orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 `PruneDeliveriesResult`
 
 - `deliveries_pruned`
+
+`WorkerState`
+
+- `worker_id`
+- `running`
+- `current_event_id`
+- `last_error`
