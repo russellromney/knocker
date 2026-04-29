@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "knocker-honker",
+    "knocker-extension",
+]
+exclude = [
+    "packages/knocker",
+]
+resolver = "2"

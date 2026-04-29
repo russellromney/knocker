@@ -1,0 +1,17 @@
+---
+title: Docs
+description: Getting started, operator guidance, and reference for Knocker.
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+Knocker is currently Python-first. The durable semantics live in Rust and SQLite, while the public operator and ingress surface is exposed through the Python binding.
+
+<CardGrid>
+  <LinkCard title="Getting started" href="/getting-started/" description="Install knocker, register an endpoint, store a webhook, and run a worker." />
+  <LinkCard title="Verified ingress" href="/guides/verified-ingress/" description="Provider presets, secret rotation, custom verification, and dedupe keys." />
+  <LinkCard title="Operator surface" href="/guides/operators/" description="List, inspect, ignore, replay, and requeue stored events and deliveries." />
+  <LinkCard title="Retention and pruning" href="/guides/retention/" description="Explicit, bounded pruning for handled, ignored, and orphan-delivery rows." />
+  <LinkCard title="Python API" href="/reference/python/" description="Stable public methods and result shapes in the shipped Python binding." />
+  <LinkCard title="Roadmap" href="/roadmap/" description="What is still ahead before and after 0.1.0." />
+</CardGrid>

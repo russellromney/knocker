@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "knocker"
+version = "0.1.0"
+description = "Embeddable inbound webhook inbox on SQLite"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.maturin]
+python-source = "python"
+module-name = "knocker._knocker_native"

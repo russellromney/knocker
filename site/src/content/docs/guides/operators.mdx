@@ -1,0 +1,66 @@
+---
+title: Operator surface
+description: Inspect stored events and deliveries, then apply event-level recovery actions.
+---
+
+Knocker's operator surface is Python-first and intentionally in-process. It is not a built-in HTTP control plane.
+
+## Read events
+
+```python
+events = app.list_events(
+    status="failed",
+    endpoint="stripe",
+    event_type="checkout.session.completed",
+    since=1700000000,
+    limit=50,
+)
+```
+
+Event lists are:
+
+- newest-first
+- inclusive on `since`
+- bounded to `1..1000`
+
+## Read deliveries
+
+```python
+invalid = app.list_deliveries(
+    endpoint="stripe",
+    signature_valid=False,
+    orphaned=True,
+    since=1700000000,
+    limit=50,
+)
+```
+
+`signature_valid=False` means "not true," so it includes both explicit invalid deliveries and deliveries whose verification state is `NULL`.
+
+## Inspect one row
+
+```python
+event = app.get_event(42)
+delivery = app.get_delivery(99)
+related = app.list_deliveries(event_id=event.id, limit=50)
+```
+
+Use `Event` rows for processing identity and `Delivery` rows for receipt-level audit/debugging.
+
+## Event-level actions
+
+```python
+app.ignore(event.id)
+app.replay(event.id)
+app.requeue(event.id)
+```
+
+Current action semantics:
+
+- `ignore(...)` is allowed from `received`, `failed`, or `dead`
+- `ignore(...)` is a no-op when the event is already `ignored`
+- `replay(...)` and `requeue(...)` operate at the event level, not the delivery level
+
+## Concurrency model
+
+Operator reads are best-effort under concurrent worker activity. They are good for inspection and manual recovery, but they are not advertised as a cross-call snapshot API.

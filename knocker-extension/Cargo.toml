@@ -1,0 +1,16 @@
+[package]
+name = "knocker-extension"
+version = "0.1.0"
+edition = "2024"
+description = "SQLite loadable extension for Knocker."
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "knocker_ext"
+crate-type = ["cdylib"]
+
+[dependencies]
+honker-core = { path = "../../honker/honker-core", version = "0.2.1" }
+knocker-honker = { path = "../knocker-honker" }
+rusqlite = { version = "0.39.0", features = ["functions", "hooks", "loadable_extension"] }

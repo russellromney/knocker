@@ -1,0 +1,47 @@
+---
+// Custom SiteTitle override — renders Starlight's default site
+// title (wordmark / logo) then appends a top-nav "Docs" link in
+// the left-side header slot. This sits to the LEFT of the search
+// bar and doesn't collide with the social icons + theme toggle
+// that live on the right.
+import Default from '@astrojs/starlight/components/SiteTitle.astro';
+---
+
+<div class="docs-site-title">
+  <Default><slot /></Default>
+  <nav class="docs-top-nav" aria-label="Primary">
+    <a href="/docs/">Docs</a>
+  </nav>
+</div>
+
+<style>
+  .docs-site-title {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+  }
+  .docs-top-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .docs-top-nav a {
+    color: var(--sl-color-text);
+    text-decoration: none;
+    font-size: var(--sl-text-sm);
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+  }
+  .docs-top-nav a:hover {
+    color: var(--sl-color-accent-high);
+    background: var(--sl-color-gray-6);
+  }
+  /* Mobile nav: the sidebar takes over, so hide our inline link to
+     avoid crowding the hamburger + title. */
+  @media (max-width: 50rem) {
+    .docs-top-nav { display: none; }
+  }
+</style>

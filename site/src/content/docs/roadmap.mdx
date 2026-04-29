@@ -1,0 +1,29 @@
+---
+title: Roadmap
+description: What Knocker ships today, and what is still intentionally deferred.
+---
+
+Knocker's current shape is intentionally narrow:
+
+- verified webhook ingress
+- durable `Delivery` and `Event` rows on SQLite
+- Python-first operator reads and event actions
+- explicit minimal pruning
+
+## Still intentionally deferred
+
+- automatic retention jobs and richer retention policy
+- broader cross-binding operator parity
+- hosted control plane or built-in admin API
+- HTML admin UI
+- Node-first or multi-language operator surfaces beyond smoke-level contract checks
+
+## Release focus
+
+The current release work is about clarity and proof, not new semantics:
+
+- ship-worthy docs
+- representative performance evidence
+- explicit compatibility and publish criteria
+
+If Knocker grows later, it should do so by staying library-shaped: small durable semantics in the core, thin binding-owned ergonomics on top.

@@ -1,0 +1,88 @@
+---
+title: Getting started
+description: Install Knocker and store your first webhook in a few minutes.
+---
+
+## Install
+
+```bash
+pip install knocker
+```
+
+Knocker currently ships as a Python package backed by the Rust `knocker-honker` core and Honker queue machinery underneath.
+
+## Open a database and register an endpoint
+
+```python
+import knocker
+
+app = knocker.open("knocker.db")
+
+app.add_endpoint(
+    name="stripe",
+    path="/webhooks/stripe",
+    provider="stripe",
+    secrets=["whsec_123"],
+)
+```
+
+That gives you:
+
+- a named endpoint row in SQLite
+- Stripe signature verification using the active secret list
+- provider-based extraction of the upstream event id and event type
+
+## Register a handler
+
+```python
+@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+def handle_checkout(event, tx):
+    tx.query(
+        "INSERT INTO handled_events (event_id, provider_event_id) VALUES (?, ?)",
+        [event.id, event.provider_event_id],
+    )
+```
+
+Handlers receive a stored `Event`, not a raw request object. They run later against rows already committed to SQLite.
+
+## Receive a webhook
+
+```python
+result = app.receive(
+    endpoint="stripe",
+    body=b'{"id":"evt_1","type":"checkout.session.completed"}',
+    headers={"stripe-signature": "..."},
+)
+
+assert result.status_code == 204
+```
+
+`receive(...)` verifies the request, stores a `Delivery`, and, when valid, creates or correlates a durable `Event`.
+
+## Run the worker
+
+```python
+import asyncio
+
+async def main():
+    stop = asyncio.Event()
+    worker = asyncio.create_task(app.run_worker(stop_event=stop))
+    try:
+        await asyncio.sleep(10)
+    finally:
+        stop.set()
+        await worker
+
+asyncio.run(main())
+```
+
+The worker claims queued event jobs from Honker and dispatches them to your registered handlers.
+
+## Inspect what landed
+
+```python
+events = app.list_events(limit=10)
+deliveries = app.list_deliveries(limit=10)
+```
+
+Use the operator surface to inspect durable state before you build any app-specific admin routes around it.

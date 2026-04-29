@@ -1,0 +1,11 @@
+.pytest_cache/
+.venv/
+__pycache__/
+*.pyc
+target/
+dist/
+build/
+*.db
+*.db-shm
+*.db-wal
+packages/knocker/python/knocker/_knocker_native*.so

@@ -1,0 +1,14 @@
+/**
+ * Cloudflare Pages configuration for knocker.dev.
+ *
+ * First-time setup:
+ *
+ *   npx wrangler login
+ *   npx wrangler pages project create knocker --production-branch=main
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "knocker",
+  "compatibility_date": "2025-04-01",
+  "pages_build_output_dir": "./dist"
+}

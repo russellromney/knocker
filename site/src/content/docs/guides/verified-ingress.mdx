@@ -1,0 +1,76 @@
+---
+title: Verified ingress
+description: Configure endpoint verification, secret rotation, and correlation keys.
+---
+
+Knocker keeps request verification in the Python binding and durable receipt semantics in SQLite.
+
+## Provider presets
+
+Today the most complete preset is Stripe:
+
+```python
+app.add_endpoint(
+    name="stripe",
+    path="/webhooks/stripe",
+    provider="stripe",
+    secrets=["whsec_old", "whsec_new"],
+)
+```
+
+That config:
+
+- verifies the `stripe-signature` header
+- accepts overlapping active secrets for rotation
+- extracts the upstream event id from the JSON body
+- extracts the event type from the JSON body
+
+## Generic HMAC verification
+
+For non-Stripe providers, pass an explicit verification config:
+
+```python
+app.add_endpoint(
+    name="acme",
+    path="/webhooks/acme",
+    verification={
+        "kind": "hmac-sha256",
+        "header": "x-acme-signature",
+        "prefix": "sha256=",
+        "secrets": ["old-secret", "new-secret"],
+    },
+    delivery_key=lambda req: req.headers.get("x-acme-delivery-id"),
+    event_key=lambda req: req.headers.get("x-acme-event-id"),
+)
+```
+
+The public verification contract is intentionally small:
+
+- `kind="stripe"`
+- `kind="hmac-sha256"` (also accepts `generic-hmac-sha256` and `hmac`)
+- one `secret` or many `secrets`
+- optional prefix for generic HMAC
+
+## Verification outcomes
+
+Every inbound receipt becomes a `Delivery`, including invalid signatures.
+
+- valid receipt: stores a `Delivery`, creates or correlates an `Event`, and may enqueue work
+- invalid receipt: stores a `Delivery` only, with `event_id=None`
+
+That means you can inspect bad receipts later instead of losing them on the floor.
+
+## Correlation keys
+
+Knocker separates delivery-level identity from event-level identity:
+
+- `delivery_key` identifies one upstream HTTP receipt
+- `event_key` identifies one upstream business event
+
+If you do nothing, a Stripe preset fills in event-level extraction for you. For other providers, pass callables explicitly.
+
+## When to use `ingest(...)`
+
+Most users should call `receive(...)`.
+
+`ingest(...)` is the lower-level contract entry point when you already know the verification result and extracted metadata and want to drive the durable rows directly.

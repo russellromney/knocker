@@ -1,0 +1,19 @@
+[package]
+name = "knocker-honker"
+version = "0.1.0"
+edition = "2024"
+description = "Knocker webhook inbox core on top of Honker primitives."
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "knocker_honker"
+
+[dependencies]
+honker-core = { path = "../../honker/honker-core", version = "0.2.1" }
+rusqlite = { version = "0.39.0", features = ["functions", "hooks"] }
+serde_json = "1.0"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tempfile = "3.13"

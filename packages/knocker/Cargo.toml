@@ -1,0 +1,20 @@
+[package]
+name = "knocker-py"
+version = "0.1.0"
+edition = "2024"
+description = "PyO3 bindings for knocker."
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+name = "_knocker_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+honker-core = { path = "../../../honker/honker-core", version = "0.2.1" }
+knocker-honker = { path = "../../knocker-honker" }
+parking_lot = "0.12.5"
+pyo3 = { version = "0.28.3", features = ["extension-module"] }
+rusqlite = { version = "0.39.0", features = ["functions", "hooks"] }

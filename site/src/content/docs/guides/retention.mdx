@@ -1,0 +1,61 @@
+---
+title: Retention and pruning
+description: Explicit, bounded pruning for handled, ignored, and orphan-delivery rows.
+---
+
+Knocker keeps pruning intentionally small in `0.1.0`:
+
+- explicit operator-invoked calls only
+- no scheduler
+- no richer policy engine
+- no automatic retention jobs
+
+## Prune events
+
+```python
+summary = app.prune_events(
+    statuses=["handled", "ignored"],
+    older_than=1700000000,
+    limit=100,
+)
+```
+
+`older_than` is strict: rows qualify only when `received_at < older_than`.
+
+Candidate selection is:
+
+- oldest-first
+- bounded by explicit `limit`
+- all-or-nothing inside one transaction per prune call
+
+Returned counts:
+
+- `events_pruned`
+- `attempts_pruned`
+- `deliveries_pruned`
+- `live_jobs_pruned`
+
+## Prune orphan deliveries
+
+```python
+orphans = app.prune_orphan_deliveries(
+    older_than=1700000000,
+    limit=100,
+)
+```
+
+This is about the orphan axis only: `event_id IS NULL`. It is not a generic "invalid deliveries" delete switch.
+
+## Append-only carve-out
+
+`knocker_deliveries` is append-only during normal ingest and operator inspection. Explicit pruning is the documented retention exception that may delete old delivery rows.
+
+## What is deferred
+
+Still intentionally out of scope:
+
+- pruning `failed` or `dead` events
+- dry-run mode
+- endpoint-specific retention policy
+- automatic retention jobs
+- local-day or DST-aware retention semantics

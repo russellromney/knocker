@@ -1,0 +1,55 @@
+/* Knocker brand colors — warm red/orange so the site feels deliberate
+ * and a little urgent without sliding into control-plane UI chrome. */
+
+:root {
+  --sl-color-accent-low: #381a18;
+  --sl-color-accent: #d45a36;
+  --sl-color-accent-high: #ffb59f;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eceeef;
+  --sl-color-gray-2: #c0c2c4;
+  --sl-color-gray-3: #888b8e;
+  --sl-color-gray-4: #545659;
+  --sl-color-gray-5: #353739;
+  --sl-color-gray-6: #232425;
+  --sl-color-black: #17181c;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ffe3dc;
+  --sl-color-accent: #a63a1b;
+  --sl-color-accent-high: #451d14;
+}
+
+/* Tighter body copy */
+:root {
+  --sl-text-base: 15px;
+  --sl-text-h1: 2.2rem;
+}
+
+/* Subtle accent on code blocks */
+.expressive-code .frame {
+  border-color: var(--sl-color-accent-low);
+}
+
+.hero {
+  padding-block: 1rem !important;
+  gap: 2rem !important;
+}
+.hero > .copy {
+  gap: 0.75rem;
+}
+.hero h1 {
+  margin-block: 0;
+}
+.hero .tagline {
+  margin-block: 0;
+  font-size: var(--sl-text-h4);
+  line-height: 1.3;
+}
+.hero .actions {
+  margin-block: 0.25rem 0;
+}
+.main-pane > main > .main-frame {
+  padding-block-start: 1.5rem;
+}

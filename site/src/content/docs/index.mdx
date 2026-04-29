@@ -1,0 +1,77 @@
+---
+title: Knocker
+description: Embeddable inbound webhook inbox on SQLite.
+template: splash
+hero:
+  tagline: Store first. Ack fast. Process later.
+  image:
+    file: ../../assets/logo-transparent.png
+    alt: knocker logo
+  actions:
+    - text: Read the docs
+      link: /docs/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/russellromney/knocker
+      icon: external
+---
+
+Knocker is an embeddable inbound webhook inbox for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound events without adding a hosted control plane.
+
+Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker runs later in the same process against rows already committed to SQLite.
+
+Knocker is a library, not a service:
+
+- one app process
+- one SQLite file
+- durable ingress before success
+- async processing later in the same process
+
+## What exists today
+
+- Rust-owned SQLite contract for webhook ingest, event correlation, and lifecycle transitions
+- Python-first verified ingress with Stripe and generic HMAC verification
+- Stable operator reads for events and deliveries
+- Event-level recovery actions: ignore, replay, requeue
+- Explicit minimal pruning for handled, ignored, and orphan-delivery rows
+
+## One example
+
+```python
+import knocker
+
+app = knocker.open("knocker.db")
+app.add_endpoint(
+    name="stripe",
+    path="/webhooks/stripe",
+    provider="stripe",
+    secrets=["whsec_123"],
+)
+
+@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+def handle_checkout(event, tx):
+    tx.query(
+        "INSERT INTO handled_events (event_id, provider_event_id) VALUES (?, ?)",
+        [event.id, event.provider_event_id],
+    )
+
+result = app.receive(
+    endpoint="stripe",
+    body=b'{"id":"evt_1","type":"checkout.session.completed"}',
+    headers={"stripe-signature": "..."},
+)
+
+assert result.status_code == 204
+assert result.delivery_id is not None
+assert result.event_id is not None
+```
+
+## Product boundary
+
+Knocker owns durable webhook receipt storage and later event processing on the same SQLite file. It does not try to be:
+
+- a hosted webhook relay
+- a generic queue wrapper
+- an operator API server
+- an HTML control plane

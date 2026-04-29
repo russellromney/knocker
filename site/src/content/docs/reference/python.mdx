@@ -1,0 +1,140 @@
+---
+title: Python API
+description: Stable public Knocker surface in Python today.
+---
+
+The current public surface is Python-first.
+
+## Construction
+
+```python
+app = knocker.open(
+    "knocker.db",
+    queue_name="knocker.events",
+    visibility_timeout_s=60,
+    max_attempts=3,
+    max_readers=8,
+)
+```
+
+## Endpoint and handler registration
+
+```python
+app.add_endpoint(
+    name="stripe",
+    path="/webhooks/stripe",
+    provider="stripe",
+    secrets=["whsec_123"],
+)
+
+@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+def handle_checkout(event, tx):
+    ...
+```
+
+## Ingress
+
+```python
+result = app.receive(
+    endpoint="stripe",
+    body=b"...",
+    headers={"stripe-signature": "..."},
+)
+```
+
+Lower-level contract entry:
+
+```python
+result = app.ingest(
+    endpoint="stripe",
+    body=b"...",
+    headers={},
+    query={},
+    method="POST",
+    event_type="checkout.session.completed",
+    provider_event_id="evt_1",
+    provider_delivery_id="dlv_1",
+    dedupe_key="evt_1",
+    signature_valid=True,
+    signature_error=None,
+)
+```
+
+## Reads
+
+```python
+event = app.get_event(42)
+events = app.list_events(limit=50)
+
+delivery = app.get_delivery(99)
+deliveries = app.list_deliveries(limit=50)
+```
+
+## Actions
+
+```python
+app.ignore(42)
+app.replay(42)
+app.requeue(42)
+```
+
+## Retention
+
+```python
+summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
+orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
+```
+
+## Result types
+
+`IngestResult`
+
+- `delivery_id: int`
+- `event_id: int | None`
+- `duplicate: bool`
+- `status_code: int`
+
+`Event`
+
+- `id`
+- `endpoint`
+- `event_type`
+- `provider_event_id`
+- `provider_delivery_id`
+- `dedupe_key`
+- `status`
+- `attempt_count`
+- `headers`
+- `query`
+- `body`
+- `received_at`
+- `handled_at`
+- `last_error`
+
+`Delivery`
+
+- `id`
+- `event_id`
+- `endpoint`
+- `event_type`
+- `provider_event_id`
+- `provider_delivery_id`
+- `dedupe_key`
+- `method`
+- `headers`
+- `query`
+- `body`
+- `received_at`
+- `signature_valid`
+- `signature_error`
+
+`PruneEventsResult`
+
+- `events_pruned`
+- `attempts_pruned`
+- `deliveries_pruned`
+- `live_jobs_pruned`
+
+`PruneDeliveriesResult`
+
+- `deliveries_pruned`

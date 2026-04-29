@@ -1,0 +1,162 @@
+---
+// Custom SocialIcons override — prepends a GitHub star-count badge
+// to the social-icons cluster.
+//
+// Strategy: build-time fetch renders an initial value so there's
+// no layout shift + the SSR HTML has a real number. Client-side
+// hydration re-fetches on page load and updates the DOM so stars
+// don't go stale until the next deploy — matters once the page
+// is on Hacker News and stars move fast.
+//
+// localStorage cache (10 min TTL) keeps per-visitor GitHub API
+// calls to at most a handful per hour, well under the unauth
+// rate limit of 60/hr per IP.
+import Default from '@astrojs/starlight/components/SocialIcons.astro';
+
+const REPO = 'russellromney/knocker';
+
+function formatStars(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+// Build-time seed. If the fetch fails (offline CI, rate limit),
+// we still render the badge with "★" and let the client fill it.
+let initial = '';
+try {
+  const res = await fetch(`https://api.github.com/repos/${REPO}`, {
+    headers: { 'User-Agent': 'knocker-site-build' },
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (typeof data.stargazers_count === 'number') {
+      initial = formatStars(data.stargazers_count);
+    }
+  }
+} catch {
+  // Silent fallthrough — client-side fetch will fill it in.
+}
+---
+
+<div class="docs-social">
+  <a
+    class="docs-stars"
+    href={`https://github.com/${REPO}`}
+    aria-label="Star knocker on GitHub"
+    data-docs-stars
+    data-repo={REPO}
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      width="14"
+      height="14"
+      aria-hidden="true"
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>
+    </svg>
+    <span data-docs-stars-count>{initial || '—'}</span>
+  </a>
+  <Default><slot /></Default>
+</div>
+
+<script is:inline>
+  (function () {
+    const TTL_MS = 2 * 60 * 1000;
+    const KEY = 'knocker:stars';
+    const el = document.querySelector('[data-docs-stars]');
+    if (!el) return;
+    const repo = el.getAttribute('data-repo');
+    const countEl = el.querySelector('[data-docs-stars-count]');
+    if (!repo || !countEl) return;
+
+    function format(n) {
+      return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+    }
+
+    function readCache() {
+      try {
+        const c = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (c && c.repo === repo && typeof c.n === 'number') return c;
+      } catch {}
+      return null;
+    }
+
+    function writeCache(n) {
+      try {
+        localStorage.setItem(
+          KEY,
+          JSON.stringify({ n, t: Date.now(), repo }),
+        );
+      } catch {}
+    }
+
+    function fetchAndUpdate() {
+      // Skip if we fetched within the TTL window.
+      const cached = readCache();
+      if (cached && Date.now() - cached.t < TTL_MS) {
+        countEl.textContent = format(cached.n);
+        return;
+      }
+      fetch(`https://api.github.com/repos/${repo}`, {
+        headers: { 'Accept': 'application/vnd.github+json' },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data || typeof data.stargazers_count !== 'number') return;
+          countEl.textContent = format(data.stargazers_count);
+          writeCache(data.stargazers_count);
+        })
+        .catch(() => {
+          // Leave the DOM at whatever the build-time or cached value was.
+        });
+    }
+
+    // 1. Use a cached value immediately (if any) so the count reflects
+    //    the last fetch, not the build-time seed.
+    const cached = readCache();
+    if (cached) countEl.textContent = format(cached.n);
+
+    // 2. Fresh fetch on page load (cache-gated by TTL).
+    fetchAndUpdate();
+
+    // 3. Re-check whenever the tab becomes visible again. Handles the
+    //    "left tab open for 20 min, came back" case without polling.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') fetchAndUpdate();
+    });
+  })();
+</script>
+
+<style>
+  .docs-social {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .docs-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.25rem;
+    font-size: var(--sl-text-xs);
+    font-weight: 500;
+    color: var(--sl-color-text);
+    text-decoration: none;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .docs-stars:hover {
+    color: var(--sl-color-accent-high);
+    border-color: var(--sl-color-accent);
+    background: var(--sl-color-gray-6);
+  }
+  .docs-stars svg {
+    flex-shrink: 0;
+  }
+  @media (max-width: 50rem) {
+    .docs-stars { display: none; }
+  }
+</style>
