@@ -5,11 +5,16 @@ description: Install Knocker and store your first webhook in a few minutes.
 
 ## Install
 
+> Pre-0.1.0. The package name and API are being prepared for release; until then, install from this repository rather than PyPI.
+
 ```bash
-pip install knocker
+git clone https://github.com/russellromney/knocker.git
+cd knocker
+source ~/.zshrc
+make build-py
 ```
 
-Knocker currently ships as a Python package backed by the Rust `knocker-honker` core and Honker queue machinery underneath.
+Knocker currently ships as a Python package backed by the Rust `knocker-honker` core and Honker queue machinery underneath. The public product surface is Python-first.
 
 ## Open a database and register an endpoint
 
@@ -49,6 +54,8 @@ Writes through `tx` commit atomically with Knocker's `handled` transition and qu
 
 ## Receive a webhook
 
+In examples, `receive(...)` is shown directly. In a real app, call it from your existing HTTP route after reading the raw body bytes and headers.
+
 ```python
 result = app.receive(
     endpoint="stripe",
@@ -60,6 +67,8 @@ assert result.status_code == 204
 ```
 
 `receive(...)` verifies the request, stores a `Delivery`, and, when valid, creates or correlates a durable `Event`.
+
+Knocker does not ship framework adapters; see [Framework integration](/guides/framework-integration/) for FastAPI, Starlette, Flask, and generic examples.
 
 ## Run the worker
 

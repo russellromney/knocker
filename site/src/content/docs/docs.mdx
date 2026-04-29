@@ -5,13 +5,22 @@ description: Getting started, operator guidance, and reference for Knocker.
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Knocker is currently Python-first. The durable semantics live in Rust and SQLite, while the public operator and ingress surface is exposed through the Python binding.
+Knocker is currently Python-first. The durable semantics live in Rust and SQLite, while the public ingress, handler, and operator surface is exposed through the Python binding.
+
+If you're new, read [Getting started](/getting-started/). If you're wiring Knocker into an existing web app, start with [Framework integration](/guides/framework-integration/). Otherwise, pick the job you need:
 
 <CardGrid>
   <LinkCard title="Getting started" href="/getting-started/" description="Install knocker, register an endpoint, store a webhook, and run a worker." />
+  <LinkCard title="Framework integration" href="/guides/framework-integration/" description="Copy-paste route recipes for FastAPI, Starlette, Flask, and generic host apps." />
   <LinkCard title="Verified ingress" href="/guides/verified-ingress/" description="Provider presets, secret rotation, custom verification, and dedupe keys." />
   <LinkCard title="Operator surface" href="/guides/operators/" description="List, inspect, ignore, replay, and requeue stored events and deliveries." />
   <LinkCard title="Retention and pruning" href="/guides/retention/" description="Explicit, bounded pruning for handled, ignored, and orphan-delivery rows." />
   <LinkCard title="Python API" href="/reference/python/" description="Stable public methods and result shapes in the shipped Python binding." />
   <LinkCard title="Roadmap" href="/roadmap/" description="What is still ahead before and after 0.1.0." />
 </CardGrid>
+
+## What's not here
+
+Framework adapters for FastAPI, Flask, Django, Rails, Express, and friends are not shipped. Wiring Knocker into a web framework is route glue: read the raw body, pass headers/query to `receive(...)`, return `result.status_code`.
+
+Out of scope on purpose: hosted relays, operator API servers, HTML control planes, generic queue APIs, and exactly-once side effects.

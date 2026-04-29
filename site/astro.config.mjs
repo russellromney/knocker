@@ -32,6 +32,7 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
+            { label: 'Framework integration', slug: 'guides/framework-integration' },
             { label: 'Verified ingress', slug: 'guides/verified-ingress' },
             { label: 'Operator surface', slug: 'guides/operators' },
             { label: 'Retention and pruning', slug: 'guides/retention' },

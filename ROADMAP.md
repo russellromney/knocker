@@ -103,7 +103,7 @@ The intended layering is:
 - `knocker-honker`
   Rust crate that defines Knocker's schema and Knocker-specific SQLite operations, and uses Honker internally where appropriate
 - `knocker`
-  Thin language binding for ingress, framework adapters, handler registration, and worker dispatch
+  Thin language binding for ingress, documented framework recipes, handler registration, and worker dispatch
 
 This should remain a one-way dependency:
 
@@ -163,7 +163,7 @@ The API should not be fundamentally decorator-shaped.
 Decorators are fine as convenience sugar in Python, but the conceptual core should be explicit registration so the library fits:
 
 - raw language usage
-- framework adapters
+- host-framework route glue
 - testing
 - non-decorator coding styles
 - future multi-language bindings
@@ -198,7 +198,7 @@ def handle_checkout(event, tx):
 
 The hard semantics should live at the SQLite boundary, authored once in Rust and exposed through a small set of Knocker-owned operations.
 
-The binding should adapt host language and framework concerns into that contract. It should not reimplement durable inbox semantics.
+The binding should adapt host language concerns into that contract. Framework-specific route glue should live in docs/examples unless a future spec proves a package API is necessary.
 
 ### 3. Event Row Is The Source Of Truth
 
@@ -259,7 +259,13 @@ knocker.add_handler(
     handler=handle_checkout,
 )
 
-app.mount(knocker.asgi_app())
+result = knocker.receive(
+    endpoint="stripe",
+    body=raw_body,
+    headers=headers,
+    query=query_params,
+    method="POST",
+)
 await knocker.run_worker()
 ```
 
@@ -278,7 +284,7 @@ result = knocker.ingest(
 )
 ```
 
-Framework adapters should stay thin wrappers over this same ingress contract.
+Framework integration should stay as small documented route glue over this same ingress contract.
 
 ## SQLite Model
 
@@ -460,9 +466,9 @@ The binding layer should own request verification and provider-specific request 
 0.1.0 should ship:
 
 - generic HMAC
-- one provider-specific reference adapter
+- one provider-specific reference preset
 
-The next adapters should likely be:
+The next provider presets should likely be:
 
 - Stripe
 - GitHub
@@ -509,7 +515,7 @@ Language bindings should stay thin and local.
 
 Bindings own:
 
-- framework adapters
+- documented framework route recipes
 - reading request objects
 - signature verification
 - provider metadata extraction
@@ -640,7 +646,7 @@ Exit criteria:
 
 Goal:
 
-- deliver the first ergonomic, framework-friendly Python package
+- deliver the first ergonomic, framework-neutral Python package
 
 Deliverables:
 
@@ -650,12 +656,12 @@ Deliverables:
 - optional decorator sugar
 - raw `ingest(...)`
 - `run_worker()` / worker helper
-- ASGI adapter
+- framework integration docs/examples
 - `uv`-based local development flow
 
 Exit criteria:
 
-- usable in raw Python and in an ASGI framework without fighting the host app
+- usable in raw Python and from documented host-framework routes without fighting the host app
 
 ### Phase 5: Contract Pressure-Test With A Second Binding
 
@@ -683,10 +689,10 @@ Goal:
 
 Deliverables:
 
-- generic HMAC adapter
-- Stripe adapter as the first provider-specific reference implementation
+- generic HMAC verifier
+- Stripe preset as the first provider-specific reference implementation
 - endpoint-level secret rotation support
-- provider adapter architecture that cleanly supports GitHub and Slack next
+- provider preset architecture that cleanly supports GitHub and Slack next
 
 Non-goal for 0.1.0:
 
@@ -695,7 +701,7 @@ Non-goal for 0.1.0:
 Exit criteria:
 
 - generic verification is solid
-- at least one real provider adapter proves the shape
+- at least one real provider preset proves the shape
 - secret rotation is operationally sane
 
 ### Phase 7: Operations, Retention, And Admin Surface
@@ -747,9 +753,9 @@ Goal:
 Deliverables:
 
 - README that explains the product clearly
-- integration guide for raw Python and ASGI
+- integration guide for raw Python and common host-framework routes
 - operator runbook for retries, replay, dead events, and retention
-- provider verification guide for the shipped adapters
+- provider verification guide for the shipped presets
 - explicit 0.1.0 compatibility story for Honker dependency versions
 - PyPI publish gate and semver statement
 
@@ -786,7 +792,7 @@ The first serious test suite should prove:
 - dead-letter behavior is visible
 - replay reprocesses stored events
 - bootstrap is idempotent
-- framework adapters do not alter semantics
+- documented framework recipes preserve the same `receive(...)` semantics
 - retention operations behave safely
 - secret rotation behaves predictably
 - the second binding can hit the contract without semantic drift
@@ -844,8 +850,8 @@ These are real design questions. Some must be resolved before the later phases n
   Must resolve before Phase 3 is complete
 - how much provider-specific normalization should happen before `knocker_ingest(...)`
   Must resolve before Phase 6 is complete
-- whether the first framework adapter should be ASGI-only or include one sync framework helper too
-  Must resolve before Phase 4 is complete
+- which framework recipes should be documented first
+  Must resolve before Phase 9 is complete
 
 ## Current Recommendation
 

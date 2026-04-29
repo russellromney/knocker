@@ -37,6 +37,7 @@
 - Duplicate ingest into an existing event, including a `dead` event, remains audit-only: it stores the new delivery and does not mutate event state or enqueue work.
 - Public Python classes and methods now carry concise docstrings, and the README/docs explain the `(event, tx)` atomic handler contract.
 - Split the Python binding and test suite into smaller files under the project line-count standard.
+- Reframed framework integration as documented host-app route glue instead of a shipped adapter package.
 
 ### Fixed
 

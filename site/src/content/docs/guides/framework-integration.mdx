@@ -1,0 +1,83 @@
+---
+title: Framework integration
+description: Call Knocker from your own HTTP route without adding framework adapters.
+---
+
+Knocker intentionally does not ship framework adapters. Your app owns HTTP routing; Knocker owns durable webhook storage, verification, dedupe, and later handler dispatch.
+
+## Why route glue beats a shipped adapter
+
+A framework adapter would still need to read your framework's request object, preserve the raw signed body, pass headers through, and return a plain status response. That code is short, app-specific, and easier to audit when it lives next to the route it serves.
+
+Keeping this glue in docs also keeps Knocker's package small: no FastAPI, Flask, Django, Starlette, or ASGI dependency choices leak into the durable webhook core.
+
+The route glue is small:
+
+1. read the raw request body bytes exactly as the provider sent them
+2. pass headers and query params through to `receive(...)`
+3. return `result.status_code`
+
+## FastAPI or Starlette
+
+```python
+from fastapi import Request, Response
+
+@api.post("/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    result = app.receive(
+        endpoint="stripe",
+        body=await request.body(),
+        headers=dict(request.headers),
+        query=dict(request.query_params),
+    )
+    return Response(status_code=result.status_code)
+```
+
+## Flask
+
+```python
+from flask import Response, request
+
+@flask_app.post("/webhooks/stripe")
+def stripe_webhook():
+    result = app.receive(
+        endpoint="stripe",
+        body=request.get_data(),
+        headers=dict(request.headers),
+        query=dict(request.args),
+    )
+    return Response(status=result.status_code)
+```
+
+## Django
+
+```python
+from django.http import HttpResponse
+from django.views.decorators.http import require_POST
+
+@require_POST
+def stripe_webhook(request):
+    result = app.receive(
+        endpoint="stripe",
+        body=request.body,
+        headers=dict(request.headers.items()),
+        query=request.GET.dict(),
+    )
+    return HttpResponse(status=result.status_code)
+```
+
+## Generic shape
+
+```python
+result = app.receive(
+    endpoint="stripe",
+    body=raw_body_bytes,
+    headers=headers,
+    query=query_params,
+    method="POST",
+)
+# Return an HTTP response with this status using your framework.
+return response_with_status(result.status_code)
+```
+
+Use `receive(...)` from your route for normal verified ingress. Use `ingest(...)` only when another trusted layer has already decided the verification outcome.
