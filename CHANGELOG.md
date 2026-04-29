@@ -22,6 +22,7 @@
 
 ### Changed
 
+- Renamed the planned Python distribution to `knockerlite` while keeping the import package as `knocker`.
 - Moved durable Knocker semantics out of the Python wrapper and into the shared `knocker-honker` core.
 - Clarified the project docs around the Knocker / Honker boundary, current implementation status, and remaining work.
 - Added a high-level `receive(...)` path while preserving the lower-level `ingest(...)` primitive.

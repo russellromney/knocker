@@ -8,13 +8,17 @@ description: Install Knocker and store your first webhook in a few minutes.
 > Pre-0.1.0. The package name and API are being prepared for release; until then, install from this repository rather than PyPI.
 
 ```bash
+# After the 0.1.0 release:
+pip install knockerlite
+
+# Until then, from this repository:
 git clone https://github.com/russellromney/knocker.git
 cd knocker
 source ~/.zshrc
 make build-py
 ```
 
-Knocker currently ships as a Python package backed by the Rust `knocker-honker` core and Honker queue machinery underneath. The public product surface is Python-first.
+Knocker's published package name is `knockerlite`; the Python import name is `knocker`. The package is backed by the Rust `knocker-honker` core and Honker queue machinery underneath. The public product surface is Python-first.
 
 ## Open a database and register an endpoint
 

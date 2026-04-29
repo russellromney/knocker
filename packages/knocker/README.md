@@ -6,7 +6,13 @@ Knocker stores every HTTP receipt before returning success, dedupes provider ret
 
 > Pre-0.1.0. API may change.
 
+Published package name: `knockerlite`. Python import name: `knocker`.
+
 ## At a glance
+
+```bash
+pip install knockerlite
+```
 
 ```python
 import knocker

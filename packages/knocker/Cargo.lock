@@ -171,7 +171,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "knocker-py"
+name = "knockerlite-py"
 version = "0.1.0"
 dependencies = [
  "honker-core",

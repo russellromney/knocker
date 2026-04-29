@@ -8,6 +8,8 @@ Knocker is for apps that already have an HTTP server, a SQLite database, and loc
 
 > Pre-0.1.0. API may change.
 
+Published package name: `knockerlite`. Python import name: `knocker`.
+
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
 
 Knocker takes the approach that if SQLite is already your app database, webhook ingress should live in the same file. Your route reads the raw request body and calls `receive(...)`. Knocker verifies, stores a `Delivery`, creates or correlates a deduped `Event`, enqueues durable work, and returns a status code. Later, a local worker dispatches the stored event to your handler.
@@ -15,6 +17,10 @@ Knocker takes the approach that if SQLite is already your app database, webhook 
 Docs live at [knocker.dev](https://knocker.dev).
 
 ## At a glance
+
+```bash
+pip install knockerlite
+```
 
 ```python
 import asyncio
