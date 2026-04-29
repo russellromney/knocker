@@ -56,6 +56,30 @@ Still intentionally not implemented:
 - cross-binding operator parity beyond the Python surface
 - package publication and release automation for `0.1.0`
 
+## 0.2 Follow-Up Queue
+
+These are not `0.1.0` blockers, but they came out of the phase 006 implementation review and should be executed against deliberately.
+
+Documentation / comments:
+
+- Document that `replay_delivery(...)` resolves handlers using the selected delivery's `event_type`, not the canonical event's `event_type`.
+- Document that `replay(...)`, `requeue(...)`, and `replay_delivery(...)` reset `attempt_count` to `0` and restart the dead-letter clock.
+- Add an explanatory code comment for the `replay_delivery(...)` synthesized handler event: canonical event identity plus selected delivery payload/metadata.
+- Document that `run_worker(on_error=...)` calls `on_error` before re-raising, so user errors in `on_error` can shadow the original worker exception.
+
+Tests:
+
+- Add a `replay_delivery(...)` race test with a worker mid-handler on the same event.
+- Add an async `on_error` test, including the path where the coroutine raises.
+- Add a `replay_delivery(...)` no-matching-handler test for a delivery whose `event_type` differs from registered handlers.
+- Add a multi-worker plus `on_error` test proving one worker's failure does not corrupt another worker's state.
+
+Code organization:
+
+- Move Honker payload-shape helpers out of `coercion.py` into a better-named `payload.py` or `queue.py` home.
+- Decide whether `app.queue` is intentionally public. If yes, remove misleading underscores from `_HonkerQueue` / `_HonkerJob` or expose a smaller documented queue inspection surface.
+- Consider exposing a core `knocker_reset_event` UDF so Python `replay_delivery(...)` and Rust replay/requeue share exactly one reset implementation.
+
 ## Product Direction
 
 Knocker should be the webhook product. Honker should be the async substrate underneath it.
