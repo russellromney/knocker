@@ -1,0 +1,17 @@
+# 006-public-surface-and-reliability-hardening
+
+- 616e165 Harden Knocker public surface and reliability
+
+Verification:
+
+- `make test`
+  - Rust: 12 passed
+  - Python: 50 passed
+  - Node: 2 passed
+- `npm --prefix site run build`
+  - 9 pages built
+- Public docstring smoke
+  - passed
+- File-length check
+  - Python implementation files under 1000 lines
+  - Python test files under 1000 lines
