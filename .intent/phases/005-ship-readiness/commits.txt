@@ -1,3 +1,14 @@
 # 005-ship-readiness
 
-- Pending
+# Commits
+
+- 03eb9fd Ship Knocker readiness pass
+
+# Evidence
+
+- 2026-04-29: `npm --prefix site run build` passed
+  - Astro/Starlight: 9 pages built
+- 2026-04-29: `make test` passed
+  - Rust: 10 passed
+  - Python: 40 passed
+  - Node: 2 passed
