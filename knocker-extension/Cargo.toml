@@ -11,6 +11,6 @@ name = "knocker_ext"
 crate-type = ["cdylib"]
 
 [dependencies]
-honker-core = { path = "../../honker/honker-core", version = "0.2.1" }
+honker-core = "0.2.1"
 knocker-honker = { path = "../knocker-honker" }
 rusqlite = { version = "0.39.0", features = ["functions", "hooks", "loadable_extension"] }

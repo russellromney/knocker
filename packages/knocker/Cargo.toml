@@ -13,8 +13,8 @@ name = "_knocker_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-honker-core = { path = "../../../honker/honker-core", version = "0.2.1" }
+honker-core = "0.2.1"
 knocker-honker = { path = "../../knocker-honker" }
 parking_lot = "0.12.5"
-pyo3 = { version = "0.28.3", features = ["extension-module"] }
+pyo3 = { version = "0.28.3", features = ["extension-module", "abi3-py312"] }
 rusqlite = { version = "0.39.0", features = ["functions", "hooks"] }

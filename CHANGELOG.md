@@ -19,6 +19,7 @@
 - Added the Knocker logo assets to the repo and docs site.
 - Added `replay_delivery(delivery_id)` for explicit operator replay of one stored delivery body without mutating the canonical event payload.
 - Added local Python worker state snapshots and an optional `on_error` callback for worker-loop failures outside normal handler retry/dead-letter handling.
+- Added GitHub Actions CI plus a tag-driven Python release workflow for `knockerlite` wheels and source distributions.
 
 ### Changed
 

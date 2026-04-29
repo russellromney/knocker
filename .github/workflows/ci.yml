@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-core:
+    name: rust · knocker-honker
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+      - run: cargo test -p knocker-honker --release
+
+  extension:
+    name: rust · knocker-extension
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+      - name: Build loadable extension
+        run: cargo build --release -p knocker-extension
+      - name: Sanity-load via Python sqlite3
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import sqlite3
+
+          ext = None
+          for cand in (
+              "target/release/libknocker_ext.dylib",
+              "target/release/libknocker_ext.so",
+          ):
+              if os.path.exists(cand):
+                  ext = cand
+                  break
+          assert ext, "extension artifact not found"
+
+          conn = sqlite3.connect(":memory:")
+          conn.enable_load_extension(True)
+          conn.load_extension(ext)
+          row = conn.execute("SELECT knocker_bootstrap()").fetchone()
+          assert row is not None
+          print("knocker_bootstrap ok")
+          PY
+
+  python:
+    name: python · knockerlite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'packages/knocker/src/**/*.rs', 'packages/knocker/Cargo.toml') }}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Create venv and install test tooling
+        run: |
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install maturin pytest pytest-asyncio
+      - name: Build Python extension
+        run: |
+          . .venv/bin/activate
+          maturin develop --release --manifest-path packages/knocker/Cargo.toml
+      - name: Run pytest
+        run: |
+          . .venv/bin/activate
+          python -m pytest tests/ -q --tb=short
+
+  node:
+    name: node · contract smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: ["22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Build loadable extension
+        run: cargo build --release -p knocker-extension
+      - name: Run Node smoke tests
+        working-directory: packages/knocker-node
+        run: npm test
+
+  package-smoke:
+    name: package · wheel install smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Build wheel
+        run: |
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install maturin
+          maturin build --release --manifest-path packages/knocker/Cargo.toml --out dist
+      - name: Install wheel in a clean venv
+        shell: bash
+        run: |
+          python -m venv /tmp/knockerlite-smoke
+          /tmp/knockerlite-smoke/bin/pip install dist/knockerlite-*.whl
+          /tmp/knockerlite-smoke/bin/python - <<'PY'
+          import importlib.metadata
+          import os
+          import tempfile
+
+          import knocker
+
+          assert importlib.metadata.version("knockerlite") == "0.1.0"
+          db_path = os.path.join(tempfile.mkdtemp(prefix="knockerlite-smoke-"), "app.db")
+          app = knocker.open(db_path)
+          assert app.list_events() == []
+          print("knockerlite wheel import smoke ok")
+          PY
+
+  docs:
+    name: docs · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+        working-directory: site
+      - run: npm run build
+        working-directory: site

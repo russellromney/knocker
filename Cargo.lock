@@ -175,6 +175,8 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "honker-core"
 version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b038ddd3a3189fe4490a2a2ea1c61f867b5ee6b6e8a4cc6f3f8c607eaddafc0"
 dependencies = [
  "chrono",
  "parking_lot",
