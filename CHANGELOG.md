@@ -8,6 +8,7 @@
 - Added a `replay_delivery(...)` test that exercises an actively-running worker so synthetic replay jobs are picked up without restarting the worker loop.
 - Added an async `on_error` callback test for `run_worker(...)` that also pins the user-raise-shadows-original-exception path.
 - Added two multi-worker isolation tests confirming concurrent workers maintain independent `WorkerState` and that one worker's failure does not contaminate another's terminal state.
+- Added an operator runbook covering dead events, invalid/orphan deliveries, worker failures, replay/requeue/replay-delivery recovery, and pruning.
 
 ### Changed
 

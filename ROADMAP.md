@@ -74,7 +74,7 @@ Trust polish (post-`0.1.0`):
 - Migrate the PyPI release workflow from API token auth to PyPI trusted publishing (OIDC).
 - Add a second real provider verification (GitHub or Slack) to prove the custom-verifier shape without committing to maintaining a long provider catalog.
 - Extend retention: a per-prune audit row, richer policy options, explicit answers to "what did we delete, when, and why."
-- Publish honest ingress/worker throughput numbers and a "3 AM operator" runbook covering dead events, replay, requeue, delivery audit, and pruning.
+- Publish honest ingress/worker throughput numbers.
 
 ## Product Direction
 

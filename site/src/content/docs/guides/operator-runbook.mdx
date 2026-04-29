@@ -1,0 +1,139 @@
+---
+title: Operator runbook
+description: What to check when webhooks are failing, dead-lettered, duplicated, or ready to prune.
+---
+
+Knocker is intentionally in-process. There is no built-in admin UI or operator HTTP API, so production recovery starts from the Python operator surface you own.
+
+This page is the "3 AM" checklist.
+
+## First checks
+
+Start by listing recent events and deliveries for the endpoint you care about:
+
+```python
+events = app.list_events(endpoint="stripe", limit=50)
+invalid = app.list_deliveries(endpoint="stripe", signature_valid=False, limit=50)
+orphans = app.list_deliveries(endpoint="stripe", orphaned=True, limit=50)
+```
+
+Use `Event` rows to understand processing state. Use `Delivery` rows to understand what HTTP receipts arrived.
+
+## Provider says it sent the webhook, but my handler did not run
+
+Check for an orphan delivery first:
+
+```python
+deliveries = app.list_deliveries(
+    endpoint="stripe",
+    orphaned=True,
+    since=1700000000,
+    limit=50,
+)
+```
+
+If a delivery is orphaned with `signature_valid=False`, Knocker stored the receipt but did not create or enqueue an event because verification failed.
+
+If there is a linked delivery, inspect the event:
+
+```python
+event = app.get_event(delivery.event_id)
+```
+
+Common statuses:
+
+- `received`: stored and waiting for a worker.
+- `processing`: currently claimed by a worker or still inside a visibility window.
+- `failed`: handler failed but may be retried or requeued.
+- `dead`: retries exhausted; explicit operator recovery is needed.
+- `ignored`: operator or application policy intentionally skipped it.
+- `handled`: handler finished and the queue ack committed.
+
+## Event is dead
+
+Dead events do not automatically reactivate when the provider retries. Duplicate ingress is non-mutating: Knocker stores another `Delivery`, keeps the existing `Event` dead, and does not enqueue work.
+
+Pick the recovery you actually mean:
+
+```python
+app.requeue(event.id)
+```
+
+Use `requeue(...)` when you want to process the canonical event payload again.
+
+```python
+deliveries = app.list_deliveries(event_id=event.id, limit=20)
+app.replay_delivery(deliveries[0].id)
+```
+
+Use `replay_delivery(...)` when you want to process one specific stored delivery body, for example a provider redelivery whose payload differs from the canonical event body.
+
+Both paths reset `attempt_count` to `0`, so the dead-letter clock starts over.
+
+## Event should not run
+
+Ignore events that are still safe to skip:
+
+```python
+app.ignore(event.id)
+```
+
+`ignore(...)` is accepted from `received`, `failed`, and `dead`. It is a no-op when the event is already `ignored`, and it rejects `processing` and `handled`.
+
+If a queued job for the event is claimed later, the worker short-circuits it without invoking the handler.
+
+## Worker died
+
+If `run_worker(...)` raises outside normal handler retry/dead-letter handling, Knocker records local worker state and calls `on_error` before re-raising:
+
+```python
+states = app.worker_states()
+for state in states:
+    print(state.worker_id, state.running, state.current_event_id, state.last_error)
+```
+
+Knocker does not supervise your process. Wrap `run_worker(...)` in your app's normal task supervision or process manager, and restart it the same way you restart the rest of your application.
+
+## Before pruning
+
+Pruning is explicit and irreversible. Preview candidates with the read APIs first:
+
+```python
+candidates = app.list_events(status="handled", since=0, limit=100)
+```
+
+Then prune with a bounded threshold:
+
+```python
+summary = app.prune_events(
+    statuses=["handled", "ignored"],
+    older_than=1700000000,
+    limit=100,
+)
+```
+
+Or prune old orphan deliveries separately:
+
+```python
+summary = app.prune_orphan_deliveries(
+    older_than=1700000000,
+    limit=100,
+)
+```
+
+Knocker does not currently write a separate prune audit row. If prune invocation history matters for your app, log the call and the returned summary in your own application logging.
+
+## When to inspect deliveries
+
+Reach for deliveries when the question is about what arrived:
+
+- Was the signature valid?
+- Did the provider retry?
+- Did the redelivery body differ from the canonical event body?
+- Was a receipt stored but not linked to an event?
+
+Reach for events when the question is about processing:
+
+- Did this handler run?
+- Is the event dead or failed?
+- Should the operator requeue, replay, ignore, or prune it?

@@ -35,6 +35,7 @@ export default defineConfig({
             { label: 'Framework integration', slug: 'guides/framework-integration' },
             { label: 'Verified ingress', slug: 'guides/verified-ingress' },
             { label: 'Operator surface', slug: 'guides/operators' },
+            { label: 'Operator runbook', slug: 'guides/operator-runbook' },
             { label: 'Retention and pruning', slug: 'guides/retention' },
           ],
         },

@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 import time
+from pathlib import Path
 
 import knocker
 import pytest
@@ -487,7 +488,8 @@ async def test_async_on_error_callback_is_awaited_and_user_raise_shadows_origina
 
     # Same setup, but the async on_error itself raises. The user's raise must
     # shadow the original worker exception.
-    app2 = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
+    app2_db_path = str(Path(db_path).with_name("app2.db"))
+    app2 = knocker.open(app2_db_path, visibility_timeout_s=1, max_attempts=3)
     app2.add_endpoint(name="stripe2", path="/webhooks/stripe2", provider="stripe")
 
     @app2.handle(endpoint="stripe2")

@@ -105,6 +105,8 @@ orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 
 Provider redelivery of an already-dead event is audit-only: Knocker stores the new `Delivery` but does not mutate or enqueue the existing `Event`. Recovery is explicit via `requeue(...)` or `replay_delivery(...)`.
 
+See the [Operator runbook](https://knocker.dev/guides/operator-runbook/) for the production checklist around dead events, invalid deliveries, worker failures, and pruning.
+
 ## Deliberately not built
 
 - Hosted webhook relay or control plane
