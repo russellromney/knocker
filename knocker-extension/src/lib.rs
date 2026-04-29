@@ -14,8 +14,8 @@ pub unsafe extern "C" fn sqlite3_knockerext_init(
                 rusqlite::Error::UserFunctionError(Box::new(std::io::Error::other(e.to_string())))
             })?;
             honker_core::attach_honker_functions(&conn)?;
-            knocker_honker::attach_knocker_functions(&conn)?;
-            knocker_honker::bootstrap_knocker_schema(&conn).map_err(|e| {
+            knocker_core::attach_knocker_functions(&conn)?;
+            knocker_core::bootstrap_knocker_schema(&conn).map_err(|e| {
                 rusqlite::Error::UserFunctionError(Box::new(std::io::Error::other(e.to_string())))
             })?;
             Ok(true)

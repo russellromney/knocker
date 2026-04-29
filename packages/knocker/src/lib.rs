@@ -1,5 +1,5 @@
 use honker_core::{Readers, SharedWalWatcher, Writer, open_conn};
-use knocker_honker::attach_knocker_functions;
+use knocker_core::attach_knocker_functions;
 use parking_lot::Mutex;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
@@ -117,7 +117,7 @@ impl Database {
         let writer_conn = open_conn(&path, true).map_err(core_err)?;
         honker_core::attach_honker_functions(&writer_conn).map_err(core_err)?;
         attach_knocker_functions(&writer_conn).map_err(core_err)?;
-        knocker_honker::bootstrap_knocker_schema(&writer_conn).map_err(core_err)?;
+        knocker_core::bootstrap_knocker_schema(&writer_conn).map_err(core_err)?;
 
         Ok(Self {
             writer: Arc::new(Writer::new(writer_conn)),

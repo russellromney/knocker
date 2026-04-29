@@ -6,10 +6,10 @@ Artifacts reviewed:
 
 - `.intent/phases/002-append-only-delivery-rows/spec-diff.md`
 - `.intent/phases/002-append-only-delivery-rows/plan.md`
-- `knocker-honker/src/lib.rs`
-- `knocker-honker/src/knocker_ops.rs`
+- `knocker-core/src/lib.rs`
+- `knocker-core/src/knocker_ops.rs`
 - `packages/knocker/python/knocker/_knocker.py`
-- `tests/test_knocker_honker.py`
+- `tests/test_knocker_core.py`
 
 Verification reviewed:
 
@@ -124,7 +124,7 @@ Session:
 
 - [D3] Accept [A3]
   Action: document the `knocker_ingest(...)` transaction requirement at the Rust contract boundary and make the Node smoke binding honor it explicitly by wrapping calls in a transaction.
-  Targets: `knocker-honker/src/knocker_ops.rs`, `packages/knocker-node/index.mjs`
+  Targets: `knocker-core/src/knocker_ops.rs`, `packages/knocker-node/index.mjs`
 
 - [D4] Accept [N2]
   Action: add an explicit `SYSTEM.md` note that append-only deliveries are currently enforced by code paths and tests rather than DDL guards.

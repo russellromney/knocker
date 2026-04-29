@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   rust-core:
-    name: rust · knocker-honker
+    name: rust · knocker-core
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,8 +24,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
-      - run: cargo test -p knocker-honker --release
+          prefix-key: "v1-src-${{ hashFiles('knocker-core/src/**/*.rs', 'knocker-core/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+      - run: cargo test -p knocker-core --release
 
   extension:
     name: rust · knocker-extension
@@ -40,7 +40,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+          prefix-key: "v1-src-${{ hashFiles('knocker-core/src/**/*.rs', 'knocker-core/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
       - name: Build loadable extension
         run: cargo build --release -p knocker-extension
       - name: Sanity-load via Python sqlite3
@@ -82,7 +82,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'packages/knocker/src/**/*.rs', 'packages/knocker/Cargo.toml') }}"
+          prefix-key: "v1-src-${{ hashFiles('knocker-core/src/**/*.rs', 'knocker-core/Cargo.toml', 'packages/knocker/src/**/*.rs', 'packages/knocker/Cargo.toml') }}"
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -118,7 +118,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          prefix-key: "v1-src-${{ hashFiles('knocker-honker/src/**/*.rs', 'knocker-honker/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
+          prefix-key: "v1-src-${{ hashFiles('knocker-core/src/**/*.rs', 'knocker-core/Cargo.toml', 'knocker-extension/src/**/*.rs', 'knocker-extension/Cargo.toml') }}"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}

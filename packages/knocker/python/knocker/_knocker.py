@@ -377,7 +377,10 @@ class Knocker:
             tx.query("SELECT knocker_mark_ignored(?, ?)", [int(event_id), 0])
 
     def replay(self, event_id: int) -> None:
-        """Replay a handled, failed, dead, or ignored event using its canonical payload."""
+        """Replay a handled, failed, dead, or ignored event using its canonical payload.
+
+        Resets ``attempt_count`` to ``0``; the dead-letter clock starts over.
+        """
 
         with self.db.transaction() as tx:
             status = _event_status_or_raise(tx, int(event_id))
@@ -389,7 +392,10 @@ class Knocker:
             )
 
     def requeue(self, event_id: int) -> None:
-        """Requeue a failed, dead, or ignored event using its canonical payload."""
+        """Requeue a failed, dead, or ignored event using its canonical payload.
+
+        Resets ``attempt_count`` to ``0``; the dead-letter clock starts over.
+        """
 
         with self.db.transaction() as tx:
             status = _event_status_or_raise(tx, int(event_id))
@@ -405,6 +411,14 @@ class Knocker:
 
         This is an explicit operator action. It rejects unknown or orphan
         deliveries and never mutates the canonical event payload.
+
+        The handler is resolved using the selected delivery's ``event_type``
+        (and endpoint), not the canonical event's. If the delivery's event_type
+        does not match a registered handler, the dispatch dead-letters the
+        replay attempt.
+
+        Resets ``attempt_count`` to ``0`` on the linked event; the dead-letter
+        clock starts over.
         """
 
         with self.db.transaction() as tx:
@@ -623,6 +637,10 @@ class Knocker:
         exceptions outside normal handler handling update local worker state,
         call ``on_error`` when provided, and are re-raised for app-owned
         supervision.
+
+        ``on_error`` runs *before* the re-raise, so an exception inside the
+        callback shadows the original worker-loop exception. It may be sync
+        or async; coroutines are awaited.
         """
 
         worker_id = worker_id or f"knocker-{uuid.uuid4().hex[:8]}"
@@ -911,6 +929,12 @@ def _delivery_from_row(row: dict[str, Any]) -> Delivery:
 
 
 def _event_from_delivery(event: Event, delivery: Delivery) -> Event:
+    # Synthesized handler input for replay_delivery: canonical event identity
+    # and lifecycle fields (id, status, attempt_count, received_at, handled_at,
+    # last_error) combined with the selected delivery's payload and metadata
+    # (endpoint, event_type, provider_*, dedupe_key, headers, query, body).
+    # The handler is resolved using the delivery's event_type, not the
+    # canonical event's.
     return Event(
         id=event.id,
         endpoint=delivery.endpoint,

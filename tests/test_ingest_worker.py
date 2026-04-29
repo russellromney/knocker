@@ -452,3 +452,186 @@ async def test_expired_claim_can_be_reclaimed_and_handler_may_run_twice(db_path)
     rows = app.db.query("SELECT COUNT(*) AS c FROM handled_after_reclaim WHERE event_id=?", [event_id])
     assert calls == [event_id, event_id]
     assert rows[0]["c"] == 1
+
+async def test_async_on_error_callback_is_awaited_and_user_raise_shadows_original(db_path):
+    app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    awaited = []
+
+    @app.handle(endpoint="stripe")
+    def slow_handle(event, tx):
+        time.sleep(2)
+
+    async def on_error(exc):
+        await asyncio.sleep(0)
+        awaited.append(str(exc))
+
+    result = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-async-on-error"}',
+        headers={},
+        provider_event_id="evt-async-on-error",
+    )
+    _require_event_id(result)
+
+    worker = asyncio.create_task(
+        app.run_worker(worker_id="async-on-error-worker", on_error=on_error)
+    )
+    with pytest.raises(RuntimeError, match="claim no longer valid"):
+        await asyncio.wait_for(worker, timeout=5.0)
+    assert len(awaited) == 1
+    assert "claim no longer valid" in awaited[0]
+    state = app.worker_states()[0]
+    assert state.worker_id == "async-on-error-worker"
+    assert state.last_error is not None
+
+    # Same setup, but the async on_error itself raises. The user's raise must
+    # shadow the original worker exception.
+    app2 = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
+    app2.add_endpoint(name="stripe2", path="/webhooks/stripe2", provider="stripe")
+
+    @app2.handle(endpoint="stripe2")
+    def slow_handle_2(event, tx):
+        time.sleep(2)
+
+    async def on_error_raises(exc):
+        await asyncio.sleep(0)
+        raise RuntimeError("on_error itself failed")
+
+    app2.ingest(
+        endpoint="stripe2",
+        body=b'{"id":"evt-on-error-raises"}',
+        headers={},
+        provider_event_id="evt-on-error-raises",
+    )
+    worker2 = asyncio.create_task(
+        app2.run_worker(worker_id="on-error-raises-worker", on_error=on_error_raises)
+    )
+    with pytest.raises(RuntimeError, match="on_error itself failed"):
+        await asyncio.wait_for(worker2, timeout=5.0)
+
+async def test_multiple_concurrent_workers_have_independent_state(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+
+    handled = []
+    errors_a = []
+    errors_b = []
+
+    @app.handle(endpoint="stripe")
+    def handle(event, tx):
+        handled.append(event.id)
+
+    event_ids = []
+    for idx in range(6):
+        result = app.ingest(
+            endpoint="stripe",
+            body=f'{{"id":"evt-iso-{idx}"}}'.encode("utf-8"),
+            headers={},
+            provider_event_id=f"evt-iso-{idx}",
+        )
+        event_ids.append(_require_event_id(result))
+
+    stop = asyncio.Event()
+    workers = [
+        asyncio.create_task(
+            app.run_worker(
+                worker_id="worker-a",
+                stop_event=stop,
+                idle_poll_s=0.01,
+                on_error=lambda exc: errors_a.append(str(exc)),
+            )
+        ),
+        asyncio.create_task(
+            app.run_worker(
+                worker_id="worker-b",
+                stop_event=stop,
+                idle_poll_s=0.01,
+                on_error=lambda exc: errors_b.append(str(exc)),
+            )
+        ),
+    ]
+
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while asyncio.get_running_loop().time() < deadline:
+        if all(app.get_event(eid).status == "handled" for eid in event_ids):
+            break
+        await asyncio.sleep(0.05)
+
+    stop.set()
+    await asyncio.wait_for(asyncio.gather(*workers), timeout=3.0)
+
+    states = {state.worker_id: state for state in app.worker_states()}
+    assert set(states) == {"worker-a", "worker-b"}
+    for worker_id, state in states.items():
+        assert state.running is False, worker_id
+        assert state.current_event_id is None, worker_id
+        assert state.last_error is None, worker_id
+    assert sorted(handled) == event_ids
+    assert errors_a == []
+    assert errors_b == []
+
+async def test_one_worker_failing_does_not_taint_other_workers_state(db_path):
+    app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+
+    calls = {"count": 0}
+
+    @app.handle(endpoint="stripe")
+    def first_call_slow(event, tx):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            time.sleep(2)
+
+    result = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-iso-mixed"}',
+        headers={},
+        provider_event_id="evt-iso-mixed",
+    )
+    event_id = _require_event_id(result)
+
+    # Worker-a holds the loop past visibility_timeout and fails through on_error.
+    errors_a = []
+    worker_a = asyncio.create_task(
+        app.run_worker(
+            worker_id="worker-a",
+            on_error=lambda exc: errors_a.append(str(exc)),
+        )
+    )
+    with pytest.raises(RuntimeError, match="claim no longer valid"):
+        await asyncio.wait_for(worker_a, timeout=5.0)
+
+    states = {state.worker_id: state for state in app.worker_states()}
+    assert states["worker-a"].running is False
+    assert states["worker-a"].last_error is not None
+    assert "claim no longer valid" in states["worker-a"].last_error
+    assert errors_a and "claim no longer valid" in errors_a[0]
+
+    # Worker-b reclaims the event, runs the handler successfully (no sleep on
+    # second call), and finishes with a clean state independent of worker-a.
+    stop_b = asyncio.Event()
+    errors_b = []
+    worker_b = asyncio.create_task(
+        app.run_worker(
+            worker_id="worker-b",
+            stop_event=stop_b,
+            idle_poll_s=0.01,
+            on_error=lambda exc: errors_b.append(str(exc)),
+        )
+    )
+    await _wait_for_status(app, event_id, "handled", timeout=5.0)
+    stop_b.set()
+    await asyncio.wait_for(worker_b, timeout=3.0)
+
+    states = {state.worker_id: state for state in app.worker_states()}
+    # Worker-a's terminal error stays pinned even after worker-b succeeded.
+    assert states["worker-a"].running is False
+    assert states["worker-a"].last_error is not None
+    assert "claim no longer valid" in states["worker-a"].last_error
+    # Worker-b's state is clean.
+    assert states["worker-b"].running is False
+    assert states["worker-b"].current_event_id is None
+    assert states["worker-b"].last_error is None
+    assert errors_b == []
+    assert calls["count"] == 2

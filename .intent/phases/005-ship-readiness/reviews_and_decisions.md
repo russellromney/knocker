@@ -36,7 +36,7 @@ Current implementation: a duplicate ingest into an existing `dead` event auto-re
 **Concrete revert:**
 
 - `knocker_ops.rs::ingest`: drop the dead branch's reset + enqueue. Revert `find_existing_event` to id-only.
-- `tests/test_knocker_honker.py::test_dead_redelivery_requeues_existing_event`: flip to assert `duplicate=true`, event stays `dead`, no new live job, new `Delivery` row stored. Add a follow-on assertion that `requeue(event_id)` is the explicit recovery path.
+- `tests/test_knocker_core.py::test_dead_redelivery_requeues_existing_event`: flip to assert `duplicate=true`, event stays `dead`, no new live job, new `Delivery` row stored. Add a follow-on assertion that `requeue(event_id)` is the explicit recovery path.
 
 ### Still open
 

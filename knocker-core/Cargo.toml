@@ -1,13 +1,13 @@
 [package]
-name = "knocker-honker"
+name = "knocker-core"
 version = "0.1.0"
 edition = "2024"
-description = "Knocker webhook inbox core on top of Honker primitives."
+description = "Shared Rust foundation for Knocker webhook inbox semantics."
 license = "Apache-2.0"
 publish = false
 
 [lib]
-name = "knocker_honker"
+name = "knocker_core"
 
 [dependencies]
 honker-core = "0.2.1"

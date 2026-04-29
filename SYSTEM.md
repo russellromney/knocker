@@ -14,7 +14,7 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 
 - The host app owns HTTP framework integration and business logic.
 - The language binding owns request adaptation, signature verification, endpoint registration, handler dispatch, and the supported Python-first operator surface.
-- `knocker-honker` owns schema bootstrap, durable ingress semantics, dedupe, replay/requeue, and event state transitions.
+- `knocker-core` owns schema bootstrap, durable ingress semantics, dedupe, replay/requeue, and event state transitions.
 - Honker owns claim, lease, retry, and dead-letter queue mechanics.
 - Honker must not learn webhook-specific concepts.
 

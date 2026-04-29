@@ -2,7 +2,7 @@
 
 ## What changes
 
-- Knocker gets a Rust-backed core, `knocker-honker`, that owns bootstrap, durable ingress, replay/requeue, and event lifecycle transitions.
+- Knocker gets a Rust-backed core, `knocker-core`, that owns bootstrap, durable ingress, replay/requeue, and event lifecycle transitions.
 - The Python binding becomes thinner and delegates durable inbox semantics to the shared SQLite / Rust contract.
 - A Node smoke test validates that the contract is not only Python-friendly.
 - Worker correctness tightens so missing handlers dead-letter loudly and queue disposition failures roll back Knocker state.

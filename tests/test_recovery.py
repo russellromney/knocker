@@ -282,3 +282,106 @@ async def test_replay_delivery_rejects_unknown_orphan_and_live_events(db_path):
     )
     with pytest.raises(ValueError, match="cannot replay a delivery"):
         app.replay_delivery(live.delivery_id)
+
+async def test_replay_delivery_dead_letters_when_no_handler_matches_delivery_event_type(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+
+    seen = []
+
+    @app.handle(endpoint="stripe", event_type="checkout.session.completed")
+    def handle_checkout(event, tx):
+        seen.append((event.id, event.event_type))
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-mismatched","type":"checkout.session.completed"}',
+        headers={},
+        provider_event_id="evt-mismatched",
+        provider_delivery_id="delivery-original",
+        event_type="checkout.session.completed",
+    )
+    event_id = _require_event_id(first)
+
+    stop = asyncio.Event()
+    worker = asyncio.create_task(app.run_worker(stop_event=stop))
+    await _wait_for_status(app, event_id, "handled")
+
+    duplicate = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-mismatched","type":"customer.created"}',
+        headers={},
+        provider_event_id="evt-mismatched",
+        provider_delivery_id="delivery-other-type",
+        event_type="customer.created",
+    )
+    assert duplicate.duplicate is True
+
+    app.replay_delivery(duplicate.delivery_id)
+    await _wait_for_status(app, event_id, "dead")
+
+    stop.set()
+    await asyncio.wait_for(worker, timeout=3.0)
+
+    assert seen == [(event_id, "checkout.session.completed")]
+    event = app.get_event(event_id)
+    assert "no handler registered" in (event.last_error or "")
+    assert "customer.created" in (event.last_error or "")
+
+async def test_replay_delivery_during_active_worker_processes_synthetic_job(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+
+    seen_bodies = []
+
+    @app.handle(endpoint="stripe")
+    def handle(event, tx):
+        seen_bodies.append(event.body)
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-active-replay","n":1}',
+        headers={},
+        provider_event_id="evt-active-replay",
+        provider_delivery_id="delivery-1",
+    )
+    event_id = _require_event_id(first)
+
+    stop = asyncio.Event()
+    worker = asyncio.create_task(app.run_worker(stop_event=stop, idle_poll_s=0.01))
+    await _wait_for_status(app, event_id, "handled")
+
+    # Worker is alive and idle-polling. Fire replay_delivery for a duplicate
+    # delivery and confirm the synthetic job is picked up without restarting
+    # the worker.
+    duplicate = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-active-replay","n":2}',
+        headers={},
+        provider_event_id="evt-active-replay",
+        provider_delivery_id="delivery-2",
+    )
+    assert duplicate.duplicate is True
+
+    app.replay_delivery(duplicate.delivery_id)
+    await _wait_for_status(app, event_id, "handled", timeout=5.0)
+
+    # Wait for the second handler invocation (the replay).
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while asyncio.get_running_loop().time() < deadline:
+        if len(seen_bodies) == 2:
+            break
+        await asyncio.sleep(0.05)
+
+    stop.set()
+    await asyncio.wait_for(worker, timeout=3.0)
+
+    assert seen_bodies == [
+        b'{"id":"evt-active-replay","n":1}',
+        b'{"id":"evt-active-replay","n":2}',
+    ]
+    # Canonical event payload is unchanged.
+    assert app.get_event(event_id).body == b'{"id":"evt-active-replay","n":1}'
+    assert app.get_event(event_id).provider_delivery_id == "delivery-1"
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    assert rows[0]["c"] == 0

@@ -15,10 +15,10 @@ Implement the schema split that adds append-only `Delivery` rows and makes `Even
 - [.intent/phases/002-append-only-delivery-rows/spec-diff.md](/Users/russellromney/Documents/Github/knocker/.intent/phases/002-append-only-delivery-rows/spec-diff.md): intended change
 - [knocker_v_1_design.md](/Users/russellromney/Documents/Github/knocker/knocker_v_1_design.md): original product intent
 - [SYSTEM.md](/Users/russellromney/Documents/Github/knocker/SYSTEM.md): current English model to update after the code lands
-- [knocker-honker/src/lib.rs](/Users/russellromney/Documents/Github/knocker/knocker-honker/src/lib.rs): current schema bootstrap
-- [knocker-honker/src/knocker_ops.rs](/Users/russellromney/Documents/Github/knocker/knocker-honker/src/knocker_ops.rs): current ingest and event transition contract
+- [knocker-core/src/lib.rs](/Users/russellromney/Documents/Github/knocker/knocker-core/src/lib.rs): current schema bootstrap
+- [knocker-core/src/knocker_ops.rs](/Users/russellromney/Documents/Github/knocker/knocker-core/src/knocker_ops.rs): current ingest and event transition contract
 - [packages/knocker/python/knocker/_knocker.py](/Users/russellromney/Documents/Github/knocker/packages/knocker/python/knocker/_knocker.py): current verified-ingress API
-- [tests/test_knocker_honker.py](/Users/russellromney/Documents/Github/knocker/tests/test_knocker_honker.py): existing lifecycle and verification tests
+- [tests/test_knocker_core.py](/Users/russellromney/Documents/Github/knocker/tests/test_knocker_core.py): existing lifecycle and verification tests
 
 ## Decisions
 

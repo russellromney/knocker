@@ -19,7 +19,7 @@ Context reviewed:
 
 **P3 — Verification criteria map to user stories.** Each line in "How we will verify it" reads like something an operator would actually do — list events with filters, inspect one event and see its deliveries, list orphan deliveries from invalid receipts, etc. That's the right shape for verification: operator behavior, not internal machinery.
 
-**P4 — The bottom note is self-aware.** "If planning uncovers that a stable read/query contract belongs in `knocker-honker` rather than only in the Python binding, that should be surfaced in the plan rather than silently decided in implementation." That's exactly the kind of preemptive trap that prevents architectural drift during implementation.
+**P4 — The bottom note is self-aware.** "If planning uncovers that a stable read/query contract belongs in `knocker-core` rather than only in the Python binding, that should be surfaced in the plan rather than silently decided in implementation." That's exactly the kind of preemptive trap that prevents architectural drift during implementation.
 
 ### Negative conformance review
 
@@ -56,7 +56,7 @@ I tried to find decisions an executor could resolve load-bearingly that the spec
 
 **A2 — Read consistency under concurrent worker activity is unstated.** If an operator calls `list_events(status='processing')` while a worker is finishing a job, what guarantee holds? Snapshot consistency? Best-effort? Most operator surfaces accept best-effort, but the spec-diff should say so explicitly so a future user doesn't expect transactional reads.
 
-**A3 — Where does the read contract actually live?** The bottom note flags this but doesn't resolve. If the plan decides "Python-only surface, no Rust contract changes," that's fine and small. If the plan decides "expose `knocker_list_events` etc. as SQL UDFs in `knocker-honker`," that's a bigger change with downstream implications for Node and any future bindings. The spec-diff should at least name the two paths and say which it leans toward.
+**A3 — Where does the read contract actually live?** The bottom note flags this but doesn't resolve. If the plan decides "Python-only surface, no Rust contract changes," that's fine and small. If the plan decides "expose `knocker_list_events` etc. as SQL UDFs in `knocker-core`," that's a bigger change with downstream implications for Node and any future bindings. The spec-diff should at least name the two paths and say which it leans toward.
 
 **A4 — No trap forbidding raw-row leakage.** "Stable APIs rather than incidental helpers" implies polished return types. But nothing in the spec-diff forbids the planner from returning raw `dict[str, Any]` rows from SQL with column names like `headers_json`. If the operator API surface ends up shaped like SQL rows, "stable" becomes "stable wrapping of internal columns" — which is the opposite of what stable should mean. Worth an explicit trap: "operator-facing return types are typed objects (Event, Delivery), not row dicts."
 
@@ -139,7 +139,7 @@ Responding to:
   Targets: `spec-diff.md`
 
 - D6 — Accept N7 and A3 together.
-  Action: choose the Python-first operator-surface path for v1. `knocker-honker` may gain helper queries only in support of that surface; `003` does not promise cross-binding operator parity or a second standalone operator API contract.
+  Action: choose the Python-first operator-surface path for v1. `knocker-core` may gain helper queries only in support of that surface; `003` does not promise cross-binding operator parity or a second standalone operator API contract.
   Targets: `spec-diff.md`
 
 - D7 — Accept A1 and A4 together.
@@ -350,9 +350,9 @@ Artifacts reviewed:
 - `.intent/phases/003-operator-read-surface/spec-diff.md`
 - `.intent/phases/003-operator-read-surface/plan.md`
 - `packages/knocker/python/knocker/_knocker.py` (working-tree diff vs `HEAD`)
-- `tests/test_knocker_honker.py` (working-tree diff vs `HEAD`)
+- `tests/test_knocker_core.py` (working-tree diff vs `HEAD`)
 - `README.md`, `packages/knocker/README.md` (working-tree diff vs `HEAD`)
-- `knocker-honker/src/knocker_ops.rs` (read-only context for `mark_ignored`, `replay`, `requeue`, `mark_processing`)
+- `knocker-core/src/knocker_ops.rs` (read-only context for `mark_ignored`, `replay`, `requeue`, `mark_processing`)
 - `SYSTEM.md`
 
 The implementation is uncommitted in the working tree. There is no `commits.txt` for this phase yet, so this review is against the pending diff.
@@ -361,27 +361,27 @@ The implementation is uncommitted in the working tree. There is no `commits.txt`
 
 **P1 — Public surface matches the pinned plan.** `Knocker.list_events(status, endpoint, event_type, since, limit=100)` and `Knocker.list_deliveries(event_id, endpoint, signature_valid, orphaned, since, limit=100)` use the exact `Optional[bool]` shape and parameter names committed in D14–D24. No new namespace, no `_UNSET` sentinel for the bool filters, no Rust UDF additions, no cursor params. ([_knocker.py:435-481](../../../packages/knocker/python/knocker/_knocker.py#L435-L481), [_knocker.py:511-561](../../../packages/knocker/python/knocker/_knocker.py#L511-L561))
 
-**P2 — Ordering and recency invariants land verbatim.** Both list methods emit `ORDER BY ... received_at DESC, ... id DESC LIMIT ?`, and `since` is rendered as `received_at>=?` (inclusive). The `test_list_events_supports_filters_since_limit_and_stable_newest_first` case explicitly forces `second_id` and `third_id` to share `received_at=200` and asserts `[third_id, second_id]`, pinning the `id DESC` tie-break called for in D19. ([_knocker.py:479](../../../packages/knocker/python/knocker/_knocker.py#L479), [_knocker.py:559](../../../packages/knocker/python/knocker/_knocker.py#L559), [test_knocker_honker.py:618-665](../../../tests/test_knocker_honker.py#L618-L665))
+**P2 — Ordering and recency invariants land verbatim.** Both list methods emit `ORDER BY ... received_at DESC, ... id DESC LIMIT ?`, and `since` is rendered as `received_at>=?` (inclusive). The `test_list_events_supports_filters_since_limit_and_stable_newest_first` case explicitly forces `second_id` and `third_id` to share `received_at=200` and asserts `[third_id, second_id]`, pinning the `id DESC` tie-break called for in D19. ([_knocker.py:479](../../../packages/knocker/python/knocker/_knocker.py#L479), [_knocker.py:559](../../../packages/knocker/python/knocker/_knocker.py#L559), [test_knocker_core.py:618-665](../../../tests/test_knocker_core.py#L618-L665))
 
-**P3 — Limit bounds are enforced and tested.** `_coerce_limit` rejects bools, non-1..1000 ints, with a clear error. `list_events(limit=0)` and `list_events(limit=1001)` both raise the pinned `ValueError`. ([_knocker.py:718-724](../../../packages/knocker/python/knocker/_knocker.py#L718-L724), [test_knocker_honker.py:660-663](../../../tests/test_knocker_honker.py#L660-L663))
+**P3 — Limit bounds are enforced and tested.** `_coerce_limit` rejects bools, non-1..1000 ints, with a clear error. `list_events(limit=0)` and `list_events(limit=1001)` both raise the pinned `ValueError`. ([_knocker.py:718-724](../../../packages/knocker/python/knocker/_knocker.py#L718-L724), [test_knocker_core.py:660-663](../../../tests/test_knocker_core.py#L660-L663))
 
 **P4 — Typed returns are preserved.** `list_events` and `list_deliveries` continue to flow through `_event_from_row` / `_delivery_from_row`, returning the existing `Event` and `Delivery` dataclasses. No raw SQL row dicts leak into the public surface, conforming to D7. ([_knocker.py:679-715](../../../packages/knocker/python/knocker/_knocker.py#L679-L715))
 
-**P5 — `ignore()` semantics match D22.** Public `Knocker.ignore(event_id)`: unknown id → `KeyError`; status `ignored` → no-op (test asserts the `knocker_attempts` row count stays at 1 across two calls); `received`, `failed`, `dead` accepted; `processing` and `handled` rejected with a clear `ValueError`. ([_knocker.py:563-573](../../../packages/knocker/python/knocker/_knocker.py#L563-L573), [test_knocker_honker.py:715-816](../../../tests/test_knocker_honker.py#L715-L816))
+**P5 — `ignore()` semantics match D22.** Public `Knocker.ignore(event_id)`: unknown id → `KeyError`; status `ignored` → no-op (test asserts the `knocker_attempts` row count stays at 1 across two calls); `received`, `failed`, `dead` accepted; `processing` and `handled` rejected with a clear `ValueError`. ([_knocker.py:563-573](../../../packages/knocker/python/knocker/_knocker.py#L563-L573), [test_knocker_core.py:715-816](../../../tests/test_knocker_core.py#L715-L816))
 
-**P6 — Exact `event_type` matching is asserted.** The event-type test asserts `list_events(event_type="CHECKOUT.SESSION.COMPLETED") == []` against `checkout.session.completed`-typed rows. That pins D10 (no normalization, no case folding) as a behavioral test, not just prose. ([test_knocker_honker.py:653](../../../tests/test_knocker_honker.py#L653))
+**P6 — Exact `event_type` matching is asserted.** The event-type test asserts `list_events(event_type="CHECKOUT.SESSION.COMPLETED") == []` against `checkout.session.completed`-typed rows. That pins D10 (no normalization, no case folding) as a behavioral test, not just prose. ([test_knocker_core.py:653](../../../tests/test_knocker_core.py#L653))
 
-**P7 — Orphaned vs invalid stay separate filter axes.** `orphaned=True` maps to `event_id IS NULL`, `orphaned=False` to `event_id IS NOT NULL`, and `signature_valid` maps independently to the `signature_valid` column. The delivery-list test exercises both axes and confirms different result sets, even though they coincide today (D11). ([_knocker.py:548-553](../../../packages/knocker/python/knocker/_knocker.py#L548-L553), [test_knocker_honker.py:695-705](../../../tests/test_knocker_honker.py#L695-L705))
+**P7 — Orphaned vs invalid stay separate filter axes.** `orphaned=True` maps to `event_id IS NULL`, `orphaned=False` to `event_id IS NOT NULL`, and `signature_valid` maps independently to the `signature_valid` column. The delivery-list test exercises both axes and confirms different result sets, even though they coincide today (D11). ([_knocker.py:548-553](../../../packages/knocker/python/knocker/_knocker.py#L548-L553), [test_knocker_core.py:695-705](../../../tests/test_knocker_core.py#L695-L705))
 
 **P8 — Doc surface was updated.** Both READMEs now show `list_events`, `list_deliveries(signature_valid=..., orphaned=...)`, and `ignore(...)` in the audit/operator example block, removing the "minimal audit reads" framing. That matches D7's "documented" leg of "supported." ([README.md:99-110](../../../README.md#L99-L110), [packages/knocker/README.md:55-66](../../../packages/knocker/README.md#L55-L66))
 
 ### Negative conformance review
 
-**N1 — `ignore()` on a `received` event leaves the Honker job live; the spec-diff and plan don't acknowledge that.** `mark_ignored` updates `knocker_events.status='ignored'` and inserts an `ignored` attempt row, but it does not touch `_honker_live`. The Python `ignore()` wrapper does not call `queue.fail` / `queue.ack` either. So if `ignore()` is called on a `received` event that still has a queued Honker job, a worker can later claim that job, run `knocker_mark_processing` (which unconditionally rewrites `status` to `processing`), and call the handler — silently undoing the ignore. The acceptance criterion in the plan ("`ignore(...)` accepts `received`, `failed`, and `dead`") was pinned without a follow-on rule for "and revokes any pending Honker work." Either the implementation needs to ack/fail the Honker job inside `ignore()`, the dispatcher needs to short-circuit on `status='ignored'` before `mark_processing`, or the spec-diff needs to explicitly accept the race. ([_knocker.py:563-573](../../../packages/knocker/python/knocker/_knocker.py#L563-L573), [_knocker.py:607-641](../../../packages/knocker/python/knocker/_knocker.py#L607-L641), [knocker-honker/src/knocker_ops.rs:459-477](../../../knocker-honker/src/knocker_ops.rs#L459-L477), [knocker-honker/src/knocker_ops.rs:391-407](../../../knocker-honker/src/knocker_ops.rs#L391-L407))
+**N1 — `ignore()` on a `received` event leaves the Honker job live; the spec-diff and plan don't acknowledge that.** `mark_ignored` updates `knocker_events.status='ignored'` and inserts an `ignored` attempt row, but it does not touch `_honker_live`. The Python `ignore()` wrapper does not call `queue.fail` / `queue.ack` either. So if `ignore()` is called on a `received` event that still has a queued Honker job, a worker can later claim that job, run `knocker_mark_processing` (which unconditionally rewrites `status` to `processing`), and call the handler — silently undoing the ignore. The acceptance criterion in the plan ("`ignore(...)` accepts `received`, `failed`, and `dead`") was pinned without a follow-on rule for "and revokes any pending Honker work." Either the implementation needs to ack/fail the Honker job inside `ignore()`, the dispatcher needs to short-circuit on `status='ignored'` before `mark_processing`, or the spec-diff needs to explicitly accept the race. ([_knocker.py:563-573](../../../packages/knocker/python/knocker/_knocker.py#L563-L573), [_knocker.py:607-641](../../../packages/knocker/python/knocker/_knocker.py#L607-L641), [knocker-core/src/knocker_ops.rs:459-477](../../../knocker-core/src/knocker_ops.rs#L459-L477), [knocker-core/src/knocker_ops.rs:391-407](../../../knocker-core/src/knocker_ops.rs#L391-L407))
 
 **N2 — `signature_valid=False` excludes `NULL` rows; not pinned anywhere.** The filter renders as `d.signature_valid=0` (parameterized), so SQL three-valued logic drops `signature_valid IS NULL` deliveries. In normal `receive()` flow `signature_valid` is always `True`/`False`, but `Knocker.ingest(..., signature_valid=None)` is a public path that can produce `NULL`. The plan defined the filter as "filter for non-matching rows" without specifying NULL semantics. Operators asking "show me deliveries where the signature did not pass" would reasonably expect `NULL` deliveries to appear, since they certainly did not pass. Either commit to "False filters for `signature_valid = 0` only; `NULL` requires a separate axis" in the spec-diff and add a test, or change the SQL to `(d.signature_valid = 0 OR d.signature_valid IS NULL)`. ([_knocker.py:548-550](../../../packages/knocker/python/knocker/_knocker.py#L548-L550), [_knocker.py:326-360](../../../packages/knocker/python/knocker/_knocker.py#L326-L360))
 
-**N3 — D23's "002 helper call sites continue to work" stretched into "002 tests had their assertions updated."** The diff modifies two preexisting 002 tests (`test_duplicate_valid_deliveries_are_auditable_without_mutating_event`, `test_invalid_first_valid_later_creates_two_deliveries_and_one_event`) to flip the asserted delivery order from `[delivery-1, delivery-2]` to `[delivery-2, delivery-1]`, because the default ordering changed from `ORDER BY d.id` to `ORDER BY d.received_at DESC, d.id DESC`. The methods and signatures still work, which is the narrow contract. The wider intent in D23 was an explicit evidence item that 002 tests still pass; modifying them to match a new ordering is effectively a soft break. Worth either calling out in the spec-diff that ordering changed and prior asserts had to be updated, or keeping a parallel small test that fixes the older ordering as a "002 behavior preserved through the same method names" anchor. ([test_knocker_honker.py:115-116](../../../tests/test_knocker_honker.py#L115-L116), [test_knocker_honker.py:551-552](../../../tests/test_knocker_honker.py#L551-L552))
+**N3 — D23's "002 helper call sites continue to work" stretched into "002 tests had their assertions updated."** The diff modifies two preexisting 002 tests (`test_duplicate_valid_deliveries_are_auditable_without_mutating_event`, `test_invalid_first_valid_later_creates_two_deliveries_and_one_event`) to flip the asserted delivery order from `[delivery-1, delivery-2]` to `[delivery-2, delivery-1]`, because the default ordering changed from `ORDER BY d.id` to `ORDER BY d.received_at DESC, d.id DESC`. The methods and signatures still work, which is the narrow contract. The wider intent in D23 was an explicit evidence item that 002 tests still pass; modifying them to match a new ordering is effectively a soft break. Worth either calling out in the spec-diff that ordering changed and prior asserts had to be updated, or keeping a parallel small test that fixes the older ordering as a "002 behavior preserved through the same method names" anchor. ([test_knocker_core.py:115-116](../../../tests/test_knocker_core.py#L115-L116), [test_knocker_core.py:551-552](../../../tests/test_knocker_core.py#L551-L552))
 
 **N4 — `commits.txt` and a recorded `make test` evidence run are missing.** The build order in `plan.md` includes "Run the full test suite and capture evidence." 001 and 002 each have a `commits.txt`; 003 does not, and there's no captured pass/fail of `make test` anywhere in the phase folder. The plan's own acceptance trail is incomplete. Without that, "tests pass" is a claim, not evidence.
 
@@ -397,7 +397,7 @@ The implementation is uncommitted in the working tree. There is no `commits.txt`
 
 **A4 — `list_deliveries(orphaned=True, signature_valid=True)` returns rows that cannot exist today.** The two filters compose with `AND`. In the current model, an orphan delivery means `event_id IS NULL`, which only happens when `signature_valid=0`. So `orphaned=True AND signature_valid=True` always returns `[]`. That's not a bug — it's a correct empty answer for an impossible-by-construction predicate — but operators reading the API might expect a hint or doc note that this combination is intentionally vacuous today. Defer; future slice may make this combination non-empty.
 
-**A5 — Error coverage for delivery-list `limit=0` is missing.** The events-list test asserts both `limit=0` and `limit=1001` raise. The deliveries-list test only asserts `limit=1001`. The validation logic is shared, so this is not a code gap, but it is a test-symmetry gap. Trivially addable. ([test_knocker_honker.py:706-707](../../../tests/test_knocker_honker.py#L706-L707))
+**A5 — Error coverage for delivery-list `limit=0` is missing.** The events-list test asserts both `limit=0` and `limit=1001` raise. The deliveries-list test only asserts `limit=1001`. The validation logic is shared, so this is not a code gap, but it is a test-symmetry gap. Trivially addable. ([test_knocker_core.py:706-707](../../../tests/test_knocker_core.py#L706-L707))
 
 **A6 — `ignore()` has no test that asserts a worker run after ignore on a `received` event leaves the event in `ignored`.** This is the testable form of N1. A test that calls `ignore(received_id)` and then runs the worker for one tick should either (a) confirm the event stays `ignored` (which would fail today), or (b) be omitted with an explicit doc note that ignore-on-received does not revoke pending work.
 
@@ -514,7 +514,7 @@ Artifacts reviewed:
 - `.intent/phases/003-operator-read-surface/plan.md` (post-Implementation-Response-1)
 - `.intent/phases/003-operator-read-surface/commits.txt`
 - `packages/knocker/python/knocker/_knocker.py` (working-tree diff vs `HEAD`)
-- `tests/test_knocker_honker.py` (working-tree diff vs `HEAD`)
+- `tests/test_knocker_core.py` (working-tree diff vs `HEAD`)
 
 This round only re-reviews the items addressed in Implementation Response 1 (D26–D35). Phase still has no commit; review is against the working tree.
 
@@ -522,15 +522,15 @@ This round only re-reviews the items addressed in Implementation Response 1 (D26
 
 **P9 — D27 / N1 fix is correctly placed.** `_dispatch_job` now reads `event.status` before opening the work transaction and short-circuits with `queue.ack` when the event is already `ignored`. Importantly the short-circuit lives *before* `mark_processing` runs, so the previously documented silent-override path is closed. ([_knocker.py:612-621](../../../packages/knocker/python/knocker/_knocker.py#L612-L621))
 
-**P10 — D27 / A6 has a real worker test, not a docstring claim.** `test_ignore_received_event_prevents_later_worker_dispatch` ingests a `received` event, calls `ignore()`, runs `app.run_worker(...)` until `_honker_live` drains, and asserts: status stays `ignored`, no handler invocation, exactly one `ignored` attempt row, and `_honker_live = 0`. The test exercises the full path (claim → short-circuit → ack), not just a status read. ([test_knocker_honker.py:868-908](../../../tests/test_knocker_honker.py#L868-L908))
+**P10 — D27 / A6 has a real worker test, not a docstring claim.** `test_ignore_received_event_prevents_later_worker_dispatch` ingests a `received` event, calls `ignore()`, runs `app.run_worker(...)` until `_honker_live` drains, and asserts: status stays `ignored`, no handler invocation, exactly one `ignored` attempt row, and `_honker_live = 0`. The test exercises the full path (claim → short-circuit → ack), not just a status read. ([test_knocker_core.py:868-908](../../../tests/test_knocker_core.py#L868-L908))
 
-**P11 — D28 / N2 SQL change is exactly the spec text.** Filter renders as `(d.signature_valid=0 OR d.signature_valid IS NULL)` for `signature_valid=False`. The new spec-diff invariant ("`signature_valid=False` means 'not true' ... `signature_valid = 0` and `signature_valid IS NULL` both match") matches the SQL one-to-one. `test_signature_valid_false_filter_includes_null_rows` asserts both rows return, in newest-first order. ([_knocker.py:548-553](../../../packages/knocker/python/knocker/_knocker.py#L548-L553), [spec-diff.md:35](spec-diff.md#L35), [test_knocker_honker.py:911-930](../../../tests/test_knocker_honker.py#L911-L930))
+**P11 — D28 / N2 SQL change is exactly the spec text.** Filter renders as `(d.signature_valid=0 OR d.signature_valid IS NULL)` for `signature_valid=False`. The new spec-diff invariant ("`signature_valid=False` means 'not true' ... `signature_valid = 0` and `signature_valid IS NULL` both match") matches the SQL one-to-one. `test_signature_valid_false_filter_includes_null_rows` asserts both rows return, in newest-first order. ([_knocker.py:548-553](../../../packages/knocker/python/knocker/_knocker.py#L548-L553), [spec-diff.md:35](spec-diff.md#L35), [test_knocker_core.py:911-930](../../../tests/test_knocker_core.py#L911-L930))
 
-**P12 — D32 / A1 tightening is genuine.** `_coerce_since` now rejects bools and non-`int` types up front instead of truncating floats. Test `test_operator_filters_reject_non_integer_since_and_delivery_limit_zero` asserts `since=2.5` raises `TypeError` for both `list_events` and `list_deliveries`. ([_knocker.py:728-731](../../../packages/knocker/python/knocker/_knocker.py#L728-L731), [test_knocker_honker.py:933-948](../../../tests/test_knocker_honker.py#L933-L948))
+**P12 — D32 / A1 tightening is genuine.** `_coerce_since` now rejects bools and non-`int` types up front instead of truncating floats. Test `test_operator_filters_reject_non_integer_since_and_delivery_limit_zero` asserts `since=2.5` raises `TypeError` for both `list_events` and `list_deliveries`. ([_knocker.py:728-731](../../../packages/knocker/python/knocker/_knocker.py#L728-L731), [test_knocker_core.py:933-948](../../../tests/test_knocker_core.py#L933-L948))
 
 **P13 — D31 / N5 error string is honest now.** `_coerce_bool_filter` raises `f"{name} must be a bool"` (no longer the misleading "or None"). Cosmetic but it was a public-facing string. ([_knocker.py:734-737](../../../packages/knocker/python/knocker/_knocker.py#L734-L737))
 
-**P14 — D33 / A3 default-limit cap is now a behavioral test.** `test_list_events_default_limit_caps_results` ingests 105 events and asserts `len(list_events()) == 100` plus order is `reversed(event_ids[-100:])`. Pins both the cap and newest-first ordering at the cap boundary. ([test_knocker_honker.py:668-685](../../../tests/test_knocker_honker.py#L668-L685))
+**P14 — D33 / A3 default-limit cap is now a behavioral test.** `test_list_events_default_limit_caps_results` ingests 105 events and asserts `len(list_events()) == 100` plus order is `reversed(event_ids[-100:])`. Pins both the cap and newest-first ordering at the cap boundary. ([test_knocker_core.py:668-685](../../../tests/test_knocker_core.py#L668-L685))
 
 **P15 — D33 / A5 delivery `limit=0` rejection is asserted.** `list_deliveries(limit=0)` now raises in `test_operator_filters_reject_non_integer_since_and_delivery_limit_zero`. Test-symmetry gap closed.
 
@@ -548,9 +548,9 @@ This round only re-reviews the items addressed in Implementation Response 1 (D26
 
 **A7 — TOCTOU window between `get_event` and `mark_processing` in `_dispatch_job` is theoretical, not real, given Knocker's same-process model — worth a one-line note.** The new short-circuit reads status, branches, and (in the success path) opens the work transaction. There are no `await` points between the status read and `with self.db.transaction()`, so an `ignore()` call from the same event loop cannot interleave between them. SQLite's `BEGIN IMMEDIATE` semantics serialize the worker's `mark_processing` against any concurrent `ignore()` tx. So the "ignore lands after status read but before tx" race is a non-issue under the documented single-process / single-event-loop model. Worth one explicit comment line near the short-circuit so a future reader doesn't add an `await` between those two statements and silently reopen the race. Defer; not blocking. ([_knocker.py:612-621](../../../packages/knocker/python/knocker/_knocker.py#L612-L621))
 
-**A8 — `test_ignore_received_event_prevents_later_worker_dispatch` is timing-coupled.** The test polls `_honker_live` for up to 1.0s and asserts it reaches 0. On a heavily loaded CI machine the worker tick might not run within that budget; the test then fails with `live_rows[0]["c"] != 0`. The 1s budget is generous in normal conditions but is the kind of test that can flake under load. Acceptable for v1; consider a longer cap or an explicit one-shot worker variant if it ever flakes. Defer. ([test_knocker_honker.py:888-895](../../../tests/test_knocker_honker.py#L888-L895))
+**A8 — `test_ignore_received_event_prevents_later_worker_dispatch` is timing-coupled.** The test polls `_honker_live` for up to 1.0s and asserts it reaches 0. On a heavily loaded CI machine the worker tick might not run within that budget; the test then fails with `live_rows[0]["c"] != 0`. The 1s budget is generous in normal conditions but is the kind of test that can flake under load. Acceptable for v1; consider a longer cap or an explicit one-shot worker variant if it ever flakes. Defer. ([test_knocker_core.py:888-895](../../../tests/test_knocker_core.py#L888-L895))
 
-**A9 — `_dispatch_job`'s short-circuit doesn't write a fresh `ignored` attempt row, which is the right call but unstated.** The original `ignore()` already wrote one `knocker_attempts` row with outcome `ignored`. The dispatcher's short-circuit acks the queue and returns without inserting a second attempt row. The test asserts attempt count stays at 1, so the behavior is pinned. Worth one line in the spec-diff or plan that the dispatcher short-circuit is queue-only and does not record an additional attempt. Tiny; defer. ([test_knocker_honker.py:903-907](../../../tests/test_knocker_honker.py#L903-L907))
+**A9 — `_dispatch_job`'s short-circuit doesn't write a fresh `ignored` attempt row, which is the right call but unstated.** The original `ignore()` already wrote one `knocker_attempts` row with outcome `ignored`. The dispatcher's short-circuit acks the queue and returns without inserting a second attempt row. The test asserts attempt count stays at 1, so the behavior is pinned. Worth one line in the spec-diff or plan that the dispatcher short-circuit is queue-only and does not record an additional attempt. Tiny; defer. ([test_knocker_core.py:903-907](../../../tests/test_knocker_core.py#L903-L907))
 
 ### Overall
 
@@ -577,16 +577,16 @@ Artifacts reviewed:
 - `.intent/phases/003-operator-read-surface/plan.md`
 - `.intent/phases/003-operator-read-surface/commits.txt`
 - `packages/knocker/python/knocker/_knocker.py` (working tree)
-- `tests/test_knocker_honker.py` (working tree, 23 test functions counted)
+- `tests/test_knocker_core.py` (working tree, 23 test functions counted)
 - `README.md`, `packages/knocker/README.md` (working tree)
-- `knocker-honker/src/knocker_ops.rs` (re-read for the ignore short-circuit context)
+- `knocker-core/src/knocker_ops.rs` (re-read for the ignore short-circuit context)
 - `SYSTEM.md`
 
 This is a final pass before the phase commits. Working-tree state is unchanged since Round 4 (no further code or test edits). The two open Round 4 items (**N6**, **N7**) are still open in the docs.
 
 ### Positive conformance review
 
-**P18 — Acceptance criteria are all met by tests, not just prose.** Every line in `plan.md` "Acceptance" maps to at least one assertion in `tests/test_knocker_honker.py`:
+**P18 — Acceptance criteria are all met by tests, not just prose.** Every line in `plan.md` "Acceptance" maps to at least one assertion in `tests/test_knocker_core.py`:
 - `list_events` filter axes → `test_list_events_supports_filters_since_limit_and_stable_newest_first`
 - default-limit cap → `test_list_events_default_limit_caps_results`
 - `list_deliveries` filter axes (incl. orphaned vs invalid) → `test_list_deliveries_supports_filters_since_limit_and_newest_first`
@@ -597,7 +597,7 @@ This is a final pass before the phase commits. Working-tree state is unchanged s
 
 The ratio of plan invariants to executable assertions is 1:≥1 across the slice.
 
-**P19 — Test count matches recorded evidence.** `tests/test_knocker_honker.py` contains 23 test functions; `commits.txt` evidence reports `Python: 23 passed`. The numbers line up — evidence is for *this* test file, not a stale run.
+**P19 — Test count matches recorded evidence.** `tests/test_knocker_core.py` contains 23 test functions; `commits.txt` evidence reports `Python: 23 passed`. The numbers line up — evidence is for *this* test file, not a stale run.
 
 **P20 — Spec-diff invariants are airtight against the implementation.** Eight invariants ([spec-diff.md:30-37](spec-diff.md#L30-L37)) — "supported," typed returns, Python-first, exact event_type, orphan ≠ invalid, best-effort reads, signature_valid=False NULL semantics, ignore-prevents-dispatch — each have a corresponding test that would fail if the invariant broke. None of them are documentation-only.
 

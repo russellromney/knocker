@@ -13,7 +13,7 @@
 ## What does not change
 
 - Knocker remains a same-process, same-SQLite-file library.
-- Verification logic stays in the binding layer, not in `knocker-honker`.
+- Verification logic stays in the binding layer, not in `knocker-core`.
 - Honker remains unaware of webhook-specific verification concepts.
 - Handlers still operate on `Event` rows, not on raw request objects or delivery ids.
 - Replay, requeue, retry, and attempt history remain event-level concepts.

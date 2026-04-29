@@ -4,7 +4,7 @@
 
 - Knocker adds a supported operator-facing read surface for stored `Event` and `Delivery` data.
 - `002`'s existing Python read helpers (`list_events`, `get_event`, `list_deliveries`, `get_delivery`) are promoted from incidental helpers to the supported operator API for v1. This slice may refine them, but it does not replace them with a new namespace.
-- This slice chooses the Python-first path for the operator surface. `003` does not add a separate cross-binding operator API contract in `knocker-honker`.
+- This slice chooses the Python-first path for the operator surface. `003` does not add a separate cross-binding operator API contract in `knocker-core`.
 - Default list ordering changes from the earlier insertion-order shape to newest-first (`received_at DESC, id DESC`); existing `002` helper names stay the same, but callers should now treat list ordering as an operator-surface behavior of `003`.
 - Operators can list and inspect:
   - `Event` rows by status, endpoint, exact `event_type` string, and recency
@@ -30,7 +30,7 @@
 
 - "Supported" means documented, tested, and typed public operator APIs whose method names and return shapes do not change in later slices without an explicit deprecation or replacement decision in a future spec diff.
 - Operator-facing reads return typed `Event` and `Delivery` objects, not raw SQL-row dicts or internal column names.
-- The Python binding is the supported operator surface for v1. Any `knocker-honker` query helpers added in this slice exist to support that surface rather than to define a second promised operator API.
+- The Python binding is the supported operator surface for v1. Any `knocker-core` query helpers added in this slice exist to support that surface rather than to define a second promised operator API.
 - `event_type` filtering uses exact string equality. This slice does not add normalization, case folding, or fuzzy matching.
 - Orphan deliveries and invalid deliveries are separate concepts in the operator surface, even though invalid deliveries currently appear as orphan deliveries. Both filter axes remain available.
 - Operator reads are best-effort reads of stored state, not a cross-call snapshot guarantee under concurrent worker activity.

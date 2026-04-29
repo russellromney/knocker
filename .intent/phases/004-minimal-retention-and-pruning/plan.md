@@ -31,8 +31,8 @@ Session:
 - `.intent/phases/004-minimal-retention-and-pruning/spec-diff.md`
 - `.intent/phases/004-minimal-retention-and-pruning/reviews_and_decisions.md`
 - `packages/knocker/python/knocker/_knocker.py`
-- `knocker-honker/src/lib.rs`
-- `tests/test_knocker_honker.py`
+- `knocker-core/src/lib.rs`
+- `tests/test_knocker_core.py`
 
 ## Mapping from spec diff to implementation
 
@@ -179,7 +179,7 @@ Session:
 
 ## Traps
 
-- Do not add pruning UDFs to `knocker-honker` in this slice.
+- Do not add pruning UDFs to `knocker-core` in this slice.
 - Do not add schema columns such as `ignored_at`.
 - Do not broaden pruning to `failed` or `dead`.
 - Do not add verification-outcome pruning or conflate orphan with invalid.
@@ -190,14 +190,14 @@ Session:
 ## Files likely to change
 
 - `packages/knocker/python/knocker/_knocker.py`
-- `tests/test_knocker_honker.py`
+- `tests/test_knocker_core.py`
 - `README.md`
 - `packages/knocker/README.md`
 - `.intent/phases/004-minimal-retention-and-pruning/reviews_and_decisions.md`
 
 ## Areas that should not be touched
 
-- `knocker-honker` ingest, dedupe, replay, requeue, and event-state semantics
+- `knocker-core` ingest, dedupe, replay, requeue, and event-state semantics
 - schema versioning / migration code
 - Node binding surface
 - admin JSON / HTML work from `005`

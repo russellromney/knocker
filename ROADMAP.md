@@ -37,7 +37,7 @@ Knocker now keeps a small human-owned intent baseline alongside the roadmap:
 
 Implemented in this repo today:
 
-- `knocker-honker` Rust core with idempotent bootstrap
+- `knocker-core` Rust core with idempotent bootstrap
 - Rust-backed ingress contract with append-only `Delivery` rows, deduped `Event` rows, and Honker enqueue
 - Rust-backed event lifecycle transitions
 - Python binding built with PyO3 and a thin Python wrapper
@@ -49,36 +49,32 @@ Implemented in this repo today:
 - Minimal explicit Python pruning surface for `prune_events` and `prune_orphan_deliveries`
 - Provider presets for Stripe and GitHub correlation metadata
 - Node contract pressure-test via a loadable SQLite extension
+- `knockerlite` published on PyPI with Linux and macOS wheels and a tag-driven GitHub Actions release workflow
 
 Still intentionally not implemented:
 
 - automatic retention jobs and richer retention policy
 - cross-binding operator parity beyond the Python surface
-- package publication and release automation for `0.1.0`
+- Windows wheels (blocked on a `honker-core` Windows file-identity fix)
+- PyPI trusted publishing (currently uses an API token; OIDC migration is queued)
 
-## 0.2 Follow-Up Queue
+## Post-Release Backlog
 
-These are not `0.1.0` blockers, but they came out of the phase 006 implementation review and should be executed against deliberately.
-
-Documentation / comments:
-
-- Document that `replay_delivery(...)` resolves handlers using the selected delivery's `event_type`, not the canonical event's `event_type`.
-- Document that `replay(...)`, `requeue(...)`, and `replay_delivery(...)` reset `attempt_count` to `0` and restart the dead-letter clock.
-- Add an explanatory code comment for the `replay_delivery(...)` synthesized handler event: canonical event identity plus selected delivery payload/metadata.
-- Document that `run_worker(on_error=...)` calls `on_error` before re-raising, so user errors in `on_error` can shadow the original worker exception.
-
-Tests:
-
-- Add a `replay_delivery(...)` race test with a worker mid-handler on the same event.
-- Add an async `on_error` test, including the path where the coroutine raises.
-- Add a `replay_delivery(...)` no-matching-handler test for a delivery whose `event_type` differs from registered handlers.
-- Add a multi-worker plus `on_error` test proving one worker's failure does not corrupt another worker's state.
+The 006 follow-up queue (docstrings, code comments, and the four missing tests) closed in `0.1.1` polish. These remaining items came out of that same review and are deliberately deferred.
 
 Code organization:
 
 - Move Honker payload-shape helpers out of `coercion.py` into a better-named `payload.py` or `queue.py` home.
 - Decide whether `app.queue` is intentionally public. If yes, remove misleading underscores from `_HonkerQueue` / `_HonkerJob` or expose a smaller documented queue inspection surface.
 - Consider exposing a core `knocker_reset_event` UDF so Python `replay_delivery(...)` and Rust replay/requeue share exactly one reset implementation.
+
+Trust polish (post-`0.1.0`):
+
+- Restore Windows wheels once `honker-core` ships its Windows file-identity fix; re-add Windows to the release matrix and CI.
+- Migrate the PyPI release workflow from API token auth to PyPI trusted publishing (OIDC).
+- Add a second real provider verification (GitHub or Slack) to prove the custom-verifier shape without committing to maintaining a long provider catalog.
+- Extend retention: a per-prune audit row, richer policy options, explicit answers to "what did we delete, when, and why."
+- Publish honest ingress/worker throughput numbers and a "3 AM operator" runbook covering dead events, replay, requeue, delivery audit, and pruning.
 
 ## Product Direction
 
@@ -100,7 +96,7 @@ The intended layering is:
 
 - `honker`
   Generic queue / wake / retry / dead-letter substrate on SQLite
-- `knocker-honker`
+- `knocker-core`
   Rust crate that defines Knocker's schema and Knocker-specific SQLite operations, and uses Honker internally where appropriate
 - `knocker`
   Thin language binding for ingress, documented framework recipes, handler registration, and worker dispatch
@@ -116,8 +112,8 @@ Knocker should never float against an unspecified Honker version.
 
 Policy:
 
-- `knocker-honker` pins an explicit compatible Honker crate range
-- published language bindings pin compatible `knocker-honker` artifacts
+- `knocker-core` pins an explicit compatible Honker crate range
+- published language bindings pin compatible `knocker-core` artifacts
 - 0.1.0 should publish a compatibility statement, not just code
 
 Before 0.1.0, Honker and Knocker may co-evolve in the workspace. At 0.1.0, the dependency contract should become explicit.
@@ -482,7 +478,7 @@ Knocker should store:
 
 Invalid requests should usually still be stored unless obviously malicious or outside size limits.
 
-## `knocker-honker` SQL Contract
+## `knocker-core` SQL Contract
 
 The Rust core should expose a narrow, boring contract. Exact names may change, but the surface should be in this shape:
 
@@ -587,7 +583,7 @@ Exit criteria:
 
 Goal:
 
-- create `knocker-honker` crate and validate the actual Rust/SQLite layering
+- create `knocker-core` crate and validate the actual Rust/SQLite layering
 
 Deliverables:
 
@@ -812,7 +808,7 @@ Target repo shape:
   Early product design notes
 - `ROADMAP.md`
   Current implementation roadmap
-- `knocker-honker/`
+- `knocker-core/`
   Rust core for Knocker's SQLite contract
 - `knocker-extension/`
   SQLite loadable extension for cross-language contract access
@@ -845,7 +841,6 @@ SQLite-first is the feature, not a temporary compromise.
 
 These are real design questions. Some must be resolved before the later phases named below.
 
-- exact naming of the Rust crate: `knocker-honker` vs another split
 - whether `attempt_count` should represent total lifetime attempts or only the current processing cycle
   Must resolve before Phase 3 is complete
 - how much provider-specific normalization should happen before `knocker_ingest(...)`

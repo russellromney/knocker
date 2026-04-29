@@ -163,7 +163,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "knocker-honker"
+name = "knocker-core"
 version = "0.1.0"
 dependencies = [
  "honker-core",
@@ -173,11 +173,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "knockerlite-py"
+name = "knocker-py"
 version = "0.1.0"
 dependencies = [
  "honker-core",
- "knocker-honker",
+ "knocker-core",
  "parking_lot",
  "pyo3",
  "rusqlite",

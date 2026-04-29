@@ -300,7 +300,7 @@ Artifacts reviewed:
 - `commits.txt` (working tree)
 - `packages/knocker/python/knocker/_knocker.py` (working-tree diff vs `HEAD`)
 - `packages/knocker/python/knocker/__init__.py` (working tree)
-- `tests/test_knocker_honker.py` (working-tree diff vs `HEAD`)
+- `tests/test_knocker_core.py` (working-tree diff vs `HEAD`)
 - `README.md`, `packages/knocker/README.md` (working-tree diff vs `HEAD`)
 
 The implementation is uncommitted in the working tree. `commits.txt` shows `- Pending`. No phase commit yet.
@@ -312,7 +312,7 @@ The implementation is uncommitted in the working tree. `commits.txt` shows `- Pe
 - **P6 — D16 (queue scoping) lands.** `_stale_live_job_ids` filters `WHERE queue=?` against `self.queue.name` only. `test_prune_events_only_cleans_live_jobs_for_this_knocker_queue` asserts a foreign queue's row survives the prune. ([_knocker.py:702-718](../../../packages/knocker/python/knocker/_knocker.py#L702-L718))
 - **P7 — D17 (worker-claim race) lands as a graceful exit.** `_dispatch_job` now wraps `get_event` in `try/except KeyError` and on `KeyError` opens a fresh transaction, calls `queue.ack`, and returns without crashing. `test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job` exercises the full flow: claim → prune deletes event + live row → dispatch → ack-or-noop → no worker crash. ([_knocker.py:782-789](../../../packages/knocker/python/knocker/_knocker.py#L782-L789))
 - **P8 — D12 / D13 (statuses + error contract) land verbatim.** `_coerce_prune_statuses` rejects bare strings (`TypeError`), non-list/tuple (`TypeError`), empty collections (`ValueError`), non-string elements (`TypeError`), and unsupported statuses (`ValueError`). `_coerce_older_than` rejects bools/non-ints (`TypeError`). `test_prune_events_rejects_invalid_status_inputs_and_types` asserts every distinct error path. ([_knocker.py:935-953](../../../packages/knocker/python/knocker/_knocker.py#L935-L953))
-- **P9 — D15 (transactionality test) replaced with the cleaner monkey-patch shape.** `test_prune_events_rolls_back_when_delete_step_raises` patches `_delete_deliveries_for_event_ids` to delete then raise, then asserts event row, delivery row, and live-job row all survive. No fragile triggers. ([test_knocker_honker.py:1166-1190](../../../tests/test_knocker_honker.py#L1166-L1190))
+- **P9 — D15 (transactionality test) replaced with the cleaner monkey-patch shape.** `test_prune_events_rolls_back_when_delete_step_raises` patches `_delete_deliveries_for_event_ids` to delete then raise, then asserts event row, delivery row, and live-job row all survive. No fragile triggers. ([test_knocker_core.py:1166-1190](../../../tests/test_knocker_core.py#L1166-L1190))
 - **P10 — D20 (cross-event isolation) test exists.** `test_prune_events_keeps_other_event_deliveries_intact` ingests two events, prunes only the older one, asserts the other event and its delivery are untouched.
 - **P11 — D19 (preview path doc) landed in both READMEs.** Both `README.md` and `packages/knocker/README.md` show the read-surface preview pattern (`list_events(status="handled", since=0, limit=50)`) immediately above the prune calls, matching the plan's commitment that `003`'s read surface is the dry-run substitute.
 - **P12 — Validation order is fail-fast.** `prune_events` runs `_coerce_prune_statuses → _coerce_older_than → _coerce_limit` before opening the transaction. Bad inputs never even start a tx.
@@ -402,7 +402,7 @@ Session:
 
 - D28 — Accept A8.
   Action: strengthen the claimed-job race test by asserting `prune.live_jobs_pruned == 1`, so the test pins prune-side cleanup rather than only the post-dispatch end state.
-  Targets: `tests/test_knocker_honker.py`
+  Targets: `tests/test_knocker_core.py`
 
 ### Verification
 
@@ -432,7 +432,7 @@ Model family:
 
 Artifacts reviewed:
 - `commits.txt`
-- commit `a344242` (`packages/knocker/python/knocker/_knocker.py`, `tests/test_knocker_honker.py`)
+- commit `a344242` (`packages/knocker/python/knocker/_knocker.py`, `tests/test_knocker_core.py`)
 - `plan.md` (working tree)
 
 ### What landed

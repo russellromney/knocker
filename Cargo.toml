@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "knocker-honker",
+    "knocker-core",
     "knocker-extension",
 ]
 exclude = [

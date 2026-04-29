@@ -32,8 +32,8 @@ Session:
 - `.intent/phases/003-operator-read-surface/spec-diff.md`
 - `.intent/phases/003-operator-read-surface/reviews_and_decisions.md`
 - `packages/knocker/python/knocker/_knocker.py`
-- `knocker-honker/src/knocker_ops.rs`
-- `tests/test_knocker_honker.py`
+- `knocker-core/src/knocker_ops.rs`
+- `tests/test_knocker_core.py`
 
 ## Mapping from spec diff to implementation
 
@@ -158,15 +158,15 @@ Session:
 ## Files likely to change
 
 - `packages/knocker/python/knocker/_knocker.py`
-- `tests/test_knocker_honker.py`
+- `tests/test_knocker_core.py`
 - `README.md`
 - `packages/knocker/README.md`
 - `.intent/phases/003-operator-read-surface/reviews_and_decisions.md`
 
 ## Areas that should not be touched
 
-- `knocker-honker` schema and ingest semantics from `002`, unless a concrete implementation blocker proves Python-only reads are insufficient
-- `knocker-honker` schema and ingest semantics from `002`
+- `knocker-core` schema and ingest semantics from `002`, unless a concrete implementation blocker proves Python-only reads are insufficient
+- `knocker-core` schema and ingest semantics from `002`
 - Node binding parity
 - retention/pruning logic
 - admin UI or hosted control-plane work

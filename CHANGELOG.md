@@ -1,10 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added a no-matching-handler regression test for `replay_delivery(...)` so a delivery whose `event_type` does not match a registered handler dead-letters predictably.
+- Added a `replay_delivery(...)` test that exercises an actively-running worker so synthetic replay jobs are picked up without restarting the worker loop.
+- Added an async `on_error` callback test for `run_worker(...)` that also pins the user-raise-shadows-original-exception path.
+- Added two multi-worker isolation tests confirming concurrent workers maintain independent `WorkerState` and that one worker's failure does not contaminate another's terminal state.
+
+### Changed
+
+- Documented that `replay(...)`, `requeue(...)`, and `replay_delivery(...)` reset `attempt_count` to `0` and restart the dead-letter clock.
+- Documented that `replay_delivery(...)` resolves handlers using the selected delivery's `event_type`, not the canonical event's.
+- Documented that `run_worker(on_error=...)` runs the callback before re-raising, so a user raise in `on_error` shadows the original worker-loop exception; coroutines are awaited.
+- Added an explanatory comment in `_event_from_delivery` describing the canonical-event-identity plus delivery-payload synthesized handler input.
+- Updated `ROADMAP.md` post-release backlog to reflect that PyPI publication, Linux/macOS wheels, and the tag-driven release workflow are in place; Windows wheels and PyPI trusted publishing remain queued.
+
 ## 0.1.0 - 2026-04-29
 
 ### Added
 
-- Added the `knocker-honker` Rust core for idempotent bootstrap, durable ingest, dedupe, replay/requeue, and event lifecycle transitions.
+- Added the `knocker-core` Rust core for idempotent bootstrap, durable ingest, dedupe, replay/requeue, and event lifecycle transitions.
 - Added the Python binding with a thin runtime wrapper over the shared Rust / SQLite contract.
 - Added a loadable SQLite extension and a small Node smoke-test binding to pressure-test the cross-language contract.
 - Added `SYSTEM.md` plus the initial `.intent/` change record for the current Knocker baseline.
@@ -24,7 +41,7 @@
 ### Changed
 
 - Renamed the planned Python distribution to `knockerlite` while keeping the import package as `knocker`.
-- Moved durable Knocker semantics out of the Python wrapper and into the shared `knocker-honker` core.
+- Moved durable Knocker semantics out of the Python wrapper and into the shared `knocker-core` crate.
 - Clarified the project docs around the Knocker / Honker boundary, current implementation status, and remaining work.
 - Added a high-level `receive(...)` path while preserving the lower-level `ingest(...)` primitive.
 - Split the durable ingress model into append-only `Delivery` rows plus deduped `Event` rows.

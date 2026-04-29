@@ -55,7 +55,7 @@ Session:
    - `_dispatch_job(...)` uses an explicit optional event lookup instead of broad `KeyError` swallowing
    - stale missing-event and ignored-event dispatch paths best-effort ack and return
    - `replay(...)` and `requeue(...)` validate accepted statuses before calling core functions
-   - `knocker-honker` deletes stale live jobs for the same event and queue before explicit replay/requeue enqueue
+   - `knocker-core` deletes stale live jobs for the same event and queue before explicit replay/requeue enqueue
 7. Add regression tests for the codebase-review gaps:
    - ingest rollback on mid-transaction enqueue failure
    - multiple workers processing multiple events once each

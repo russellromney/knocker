@@ -116,7 +116,7 @@ Provider redelivery of an already-dead event is audit-only: Knocker stores the n
 
 ## Repo layout
 
-- `knocker-honker/`: Rust core for Knocker-owned SQLite semantics
+- `knocker-core/`: Rust core for Knocker-owned SQLite semantics
 - `knocker-extension/`: loadable SQLite extension for cross-language contract testing
 - `packages/knocker/`: Python binding
 - `packages/knocker-node/`: Node smoke-test binding for the shared SQLite contract

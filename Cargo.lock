@@ -243,16 +243,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "knocker-extension"
-version = "0.1.0"
-dependencies = [
- "honker-core",
- "knocker-honker",
- "rusqlite",
-]
-
-[[package]]
-name = "knocker-honker"
+name = "knocker-core"
 version = "0.1.0"
 dependencies = [
  "honker-core",
@@ -260,6 +251,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "knocker-extension"
+version = "0.1.0"
+dependencies = [
+ "honker-core",
+ "knocker-core",
+ "rusqlite",
 ]
 
 [[package]]
