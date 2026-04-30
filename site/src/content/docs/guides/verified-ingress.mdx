@@ -5,9 +5,27 @@ description: Configure endpoint verification, secret rotation, and correlation k
 
 Knocker keeps request verification in the Python binding and durable receipt semantics in SQLite.
 
-## Provider presets
+## Provider tiers
 
-Today the most complete preset is Stripe:
+Knocker exposes provider verification through a small public interface
+(`Provider`, `ProviderRequest`, `ProviderResult`) plus a per-`Knocker`
+registry. There are three support tiers:
+
+- **Built-in curated providers** ship inside `knockerlite`, are auto-registered,
+  and Knocker tests them with valid, invalid, missing-header, and rotation /
+  timestamp cases where applicable. Today: `stripe` and `github`.
+- **App-local providers** live in your own code. You register them on a single
+  `Knocker` instance with `app.register_provider(provider)`. There is no
+  process-wide provider state.
+- **Community providers** are ordinary Python packages that expose a `Provider`
+  object you register the same way. Knocker does not auto-discover or load
+  them.
+
+Built-in provider names (`stripe`, `github`) cannot be overridden through
+`register_provider(...)`. If you need a hotfix, register an app-local
+provider under a distinct name and point endpoints at that name.
+
+## Built-in: Stripe
 
 ```python
 app.add_endpoint(
@@ -15,19 +33,119 @@ app.add_endpoint(
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_old", "whsec_new"],
+    provider_options={"tolerance_s": 300},
 )
 ```
 
-That config:
+The Stripe provider:
 
-- verifies the `stripe-signature` header
+- verifies the `Stripe-Signature` header
 - accepts overlapping active secrets for rotation
+- enforces the configured timestamp tolerance (default `300` seconds)
 - extracts the upstream event id from the JSON body
 - extracts the event type from the JSON body
 
+`provider_options` is schema-checked. Unknown keys raise `ValueError` at
+endpoint registration time so typos do not silently no-op.
+
+## Built-in: GitHub
+
+```python
+app.add_endpoint(
+    name="github",
+    path="/webhooks/github",
+    provider="github",
+    secrets=["github-webhook-secret"],
+)
+```
+
+The GitHub provider:
+
+- verifies `X-Hub-Signature-256` as `sha256=<hex hmac>` over the raw body
+- extracts `X-GitHub-Delivery` and uses it as Knocker's dedupe identity
+- extracts `X-GitHub-Event` as the event type
+
+GitHub's `X-GitHub-Delivery` is stable across operator-initiated redeliveries
+from the GitHub dashboard, so Knocker treats a redelivery of the same
+delivery id as a duplicate. To force reprocessing, use `app.replay(...)` on
+the stored event instead.
+
+## App-local providers
+
+Implement the small `Provider` interface and register your instance on the
+`Knocker` you already have:
+
+```python
+import hmac
+import knocker
+
+
+class AcmeProvider(knocker.Provider):
+    name = "acme"
+    version = "1.0.0"
+    option_keys = frozenset({"clock_skew_s"})
+    requires_secrets = True
+
+    def verify(self, request, *, secrets, options):
+        token = request.header("x-acme-token")
+        delivery_id = request.header("x-acme-delivery")
+        event_type = request.header("x-acme-event")
+        for secret in secrets:
+            if hmac.compare_digest(token or "", secret.decode("utf-8")):
+                return knocker.ProviderResult.accept(
+                    provider_delivery_id=delivery_id,
+                    event_type=event_type,
+                )
+        return knocker.ProviderResult.reject(
+            "acme token mismatch",
+            provider_delivery_id=delivery_id,
+            event_type=event_type,
+        )
+
+
+app = knocker.open("knocker.db")
+app.register_provider(AcmeProvider())
+app.add_endpoint(
+    name="acme",
+    path="/webhooks/acme",
+    provider="acme",
+    secrets=["acme-secret"],
+)
+```
+
+`Provider.verify(...)` returns a `ProviderResult` that combines the
+verification outcome and the metadata the provider could extract.
+Extraction should happen before the signature check so an invalid receipt
+still produces a useful orphan delivery row with provider delivery id,
+event id, and event type populated where available.
+
+`ProviderRequest` exposes case-insensitive `request.header(name)` and
+`request.json()`. `request.json()` raises `ValueError` on non-JSON bodies
+and caches its parsed result; guard with `try/except` for endpoints that
+may receive non-JSON payloads.
+
+If your `Provider.verify(...)` raises an unexpected exception, Knocker
+turns that into a verification failure with a useful `signature_error`
+and stores an orphan delivery rather than crashing the caller.
+
+## Provider registry inspection
+
+```python
+versions = app.provider_versions()
+# {"stripe": "1.0.0", "github": "1.0.0", "acme": "1.0.0"}
+```
+
+`provider_versions()` returns a fresh `dict[str, str]` mapping each
+registered provider name to its implementation SemVer. Use it for
+debugging and release notes; provider versions are not part of any
+Knocker compatibility contract.
+
 ## Generic HMAC verification
 
-For non-Stripe providers, pass an explicit verification config:
+Generic HMAC has too many per-provider knobs (header name, prefix,
+secret format) to ship as a curated provider without diluting the
+support promise. It stays available as the explicit
+`verification={...}` config path:
 
 ```python
 app.add_endpoint(
@@ -44,12 +162,16 @@ app.add_endpoint(
 )
 ```
 
-The public verification contract is intentionally small:
+The legacy verification config:
 
-- `kind="stripe"`
+- `kind="stripe"` (kept for compatibility; the Stripe provider runs underneath)
 - `kind="hmac-sha256"` (also accepts `generic-hmac-sha256` and `hmac`)
 - one `secret` or many `secrets`
-- optional prefix for generic HMAC
+- optional `prefix` for generic HMAC
+- optional `tolerance_s` for Stripe
+
+Generic HMAC signs only the request body. Use a provider-specific verifier
+or custom verification path when you need timestamp-based replay protection.
 
 ## Verification outcomes
 
@@ -58,7 +180,9 @@ Every inbound receipt becomes a `Delivery`, including invalid signatures.
 - valid receipt: stores a `Delivery`, creates or correlates an `Event`, and may enqueue work
 - invalid receipt: stores a `Delivery` only, with `event_id=None`
 
-That means you can inspect bad receipts later instead of losing them on the floor.
+Invalid orphan deliveries still surface provider-extracted metadata where
+the provider was able to read it before the signature check failed, so you
+can inspect bad receipts without losing them.
 
 ## Correlation keys
 
@@ -67,12 +191,16 @@ Knocker separates delivery-level identity from event-level identity:
 - `delivery_key` identifies one upstream HTTP receipt
 - `event_key` identifies one upstream business event
 
-If you do nothing, a Stripe preset fills in event-level extraction for you. For other providers, pass callables explicitly.
+Built-in providers fill these in automatically. For app-local providers,
+populate them in your `ProviderResult`. You can also pass `delivery_key=...`
+or `event_key=...` to `add_endpoint` to override what the provider
+extracted; explicit `receive(...)` arguments win over both.
 
 ## When to use `ingest(...)`
 
 Most users should call `receive(...)`.
 
-`ingest(...)` is the lower-level contract entry point when you already know the verification result and extracted metadata and want to drive the durable rows directly. It is trusted ingress: passing `signature_valid=True` means Knocker will store and enqueue as valid without running a verifier.
-
-Generic HMAC signs only the request body. Use a provider-specific verifier or custom verification path when you need timestamp-based replay protection.
+`ingest(...)` is the lower-level contract entry point when you already
+know the verification result and extracted metadata and want to drive the
+durable rows directly. It is trusted ingress: passing `signature_valid=True`
+means Knocker will store and enqueue as valid without running a verifier.

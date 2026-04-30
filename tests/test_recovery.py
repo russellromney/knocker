@@ -16,7 +16,7 @@ from tests.helpers import (
 
 async def test_replay_requeues_stored_event(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     seen = []
 
@@ -56,7 +56,7 @@ async def test_replay_requeues_stored_event(db_path):
 
 async def test_requeue_moves_dead_event_back_to_received_and_runs_again(db_path):
     app = knocker.open(db_path, max_attempts=1)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     recovered = {"ready": False}
     seen = []
@@ -102,7 +102,7 @@ async def test_requeue_moves_dead_event_back_to_received_and_runs_again(db_path)
 
 async def test_replay_rejects_received_event_with_existing_live_job(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -120,7 +120,7 @@ async def test_replay_rejects_received_event_with_existing_live_job(db_path):
 
 async def test_requeue_failed_event_replaces_existing_live_job_not_duplicates(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -144,7 +144,7 @@ async def test_requeue_failed_event_replaces_existing_live_job_not_duplicates(db
 
 async def test_dead_redelivery_is_audit_only_until_explicit_requeue(db_path):
     app = knocker.open(db_path, max_attempts=1)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     recovered = {"ready": False}
     seen = []
@@ -214,7 +214,7 @@ async def test_dead_redelivery_is_audit_only_until_explicit_requeue(db_path):
 
 async def test_replay_delivery_processes_specific_body_without_mutating_event_payload(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     seen = []
 
@@ -259,7 +259,7 @@ async def test_replay_delivery_processes_specific_body_without_mutating_event_pa
 
 async def test_replay_delivery_rejects_unknown_orphan_and_live_events(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     with pytest.raises(KeyError):
         app.replay_delivery(404)
@@ -285,7 +285,7 @@ async def test_replay_delivery_rejects_unknown_orphan_and_live_events(db_path):
 
 async def test_replay_delivery_dead_letters_when_no_handler_matches_delivery_event_type(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     seen = []
 
@@ -330,7 +330,7 @@ async def test_replay_delivery_dead_letters_when_no_handler_matches_delivery_eve
 
 async def test_replay_delivery_during_active_worker_processes_synthetic_job(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     seen_bodies = []
 

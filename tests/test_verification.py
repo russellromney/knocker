@@ -296,35 +296,3 @@ async def test_stripe_provider_preset_can_fill_verifier_and_extract_metadata(db_
     assert event.provider_event_id == "evt_preset"
     assert event.event_type == "checkout.session.completed"
 
-async def test_github_provider_preset_extracts_delivery_key_for_dedupe(db_path):
-    app = knocker.open(db_path)
-    app.add_endpoint(
-        name="github",
-        path="/webhooks/github",
-        provider="github",
-    )
-
-    first = app.receive(
-        endpoint="github",
-        body=b'{"zen":"keep it logically awesome"}',
-        headers={
-            "X-GitHub-Delivery": "delivery-123",
-            "X-GitHub-Event": "push",
-        },
-    )
-    second = app.receive(
-        endpoint="github",
-        body=b'{"zen":"keep it logically awesome"}',
-        headers={
-            "X-GitHub-Delivery": "delivery-123",
-            "X-GitHub-Event": "push",
-        },
-    )
-
-    event_id = _require_event_id(first)
-    assert second.event_id == event_id
-    assert second.duplicate is True
-    event = app.get_event(event_id)
-    deliveries = app.list_deliveries(event_id=event_id)
-    assert event.event_type == "push"
-    assert len(deliveries) == 2

@@ -27,12 +27,53 @@ app.add_endpoint(
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
+    provider_options={"tolerance_s": 300},
 )
 
 @app.handle(endpoint="stripe", event_type="checkout.session.completed")
 def handle_checkout(event, tx):
     ...
 ```
+
+`provider="name"` resolves through the per-`Knocker` provider registry.
+Built-in names (`stripe`, `github`) are registered automatically. Unknown
+names raise `ValueError` at `add_endpoint(...)` time. Built-in providers
+that require secrets reject missing/`None`/empty `secrets=...` at
+registration time. `provider_options` is schema-checked; unknown keys
+raise `ValueError`.
+
+## Provider registry
+
+```python
+import knocker
+
+
+class AcmeProvider(knocker.Provider):
+    name = "acme"
+    version = "1.0.0"
+    requires_secrets = True
+
+    def verify(self, request, *, secrets, options):
+        return knocker.ProviderResult.accept(
+            provider_delivery_id=request.header("x-acme-delivery"),
+            event_type=request.header("x-acme-event"),
+        )
+
+
+app.register_provider(AcmeProvider())
+versions = app.provider_versions()
+# {"stripe": "1.0.0", "github": "1.0.0", "acme": "1.0.0"}
+```
+
+Built-in providers cannot be overridden through `register_provider(...)`.
+Duplicate registrations fail rather than silently replacing.
+`provider_versions()` returns a fresh `dict[str, str]` snapshot of
+implementation SemVer strings.
+
+`Provider.verify(...)` returns a `ProviderResult` that combines
+verification outcome and extracted metadata. Unexpected provider
+exceptions are turned into rejected results with a useful
+`signature_error`; the caller is never crashed by a buggy provider.
 
 Handlers receive `(event, tx)`. Business writes through `tx` commit atomically with Knocker's event transition and queue ack. Handlers are synchronous; keep them short and DB-local.
 
@@ -172,3 +213,32 @@ orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 - `running`
 - `current_event_id`
 - `last_error`
+
+## Provider types
+
+`ProviderRequest`
+
+- `method: str`
+- `headers: dict`
+- `query: dict`
+- `body: bytes`
+- `header(name, default=None)` — case-insensitive lookup
+- `json()` — cached parse; raises `ValueError` on non-JSON bodies
+
+`ProviderResult`
+
+- `valid: bool`
+- `signature_error: str | None`
+- `provider_delivery_id: str | None`
+- `provider_event_id: str | None`
+- `event_type: str | None`
+- `ProviderResult.accept(...)` and `ProviderResult.reject(error, ...)` constructors
+
+`Provider`
+
+- `name: str`
+- `version: str`
+- `option_keys: frozenset[str]`
+- `requires_secrets: bool`
+- `verify(request, *, secrets, options) -> ProviderResult`
+- `validate_options(options)` — override to validate option values

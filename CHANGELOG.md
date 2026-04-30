@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added a public Python provider plugin surface: `Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.register_provider(...)`, and `Knocker.provider_versions(...)`. App-local and community providers register on a single `Knocker` instance and use the same interface as built-in curated providers.
+- Added a built-in curated `github` provider that verifies `X-Hub-Signature-256` (`sha256=<hex hmac>`), extracts `X-GitHub-Delivery` and `X-GitHub-Event`, and uses the delivery id as the dedupe identity (stable across GitHub dashboard redelivery).
+- Added `add_endpoint(..., provider_options={...})` for provider-specific tuning such as Stripe `tolerance_s`. Unknown option keys are rejected with `ValueError`.
+- Added a comprehensive `tests/test_providers.py` covering the registry surface, GitHub valid/invalid/missing-header/missing-delivery cases, app-local providers, orphan-delivery-with-metadata invariants, provider exception safety, and compatibility paths.
 - Added a no-matching-handler regression test for `replay_delivery(...)` so a delivery whose `event_type` does not match a registered handler dead-letters predictably.
 - Added a `replay_delivery(...)` test that exercises an actively-running worker so synthetic replay jobs are picked up without restarting the worker loop.
 - Added an async `on_error` callback test for `run_worker(...)` that also pins the user-raise-shadows-original-exception path.
@@ -12,6 +16,13 @@
 
 ### Changed
 
+- The Stripe verified-ingress path now routes through the new provider registry without any intentional behavior change. Existing `provider="stripe", secrets=[...]` and `verification={"kind": "stripe", ...}` configurations continue to work, including secret rotation and timestamp tolerance.
+- `provider="github"` is now a curated built-in provider rather than a metadata-only preset. Endpoints using it must pass `secrets=[...]`; verification, delivery id extraction, and event type extraction now all come from the provider implementation.
+- `add_endpoint(provider="name", ...)` resolves through the per-`Knocker` provider registry. Unknown provider names fail at registration. Built-in providers that require secrets reject missing/`None`/empty `secrets=...` at registration so misconfigured endpoints can no longer silently accept all deliveries.
+- Built-in provider names cannot be overridden via `register_provider(...)`; an explicit override knob is intentionally deferred. Adding a new built-in provider name is now called out as a compatibility-affecting release because it can collide with an app-local/community provider of the same name.
+- Provider implementations return both verification outcome and extracted metadata in one `ProviderResult`. Invalid receipts retain extracted provider metadata on the orphan delivery row when the provider was able to read it before signature failure.
+- An unexpected exception inside `Provider.verify(...)` is now turned into a verification failure with a useful `signature_error` and an orphan delivery, rather than crashing the caller.
+- `ProviderRequest.json()` raises `ValueError` on non-JSON bodies and caches its parsed result; provider authors should guard with `try/except` for endpoints that may receive non-JSON payloads.
 - Documented that `replay(...)`, `requeue(...)`, and `replay_delivery(...)` reset `attempt_count` to `0` and restart the dead-letter clock.
 - Documented that `replay_delivery(...)` resolves handlers using the selected delivery's `event_type`, not the canonical event's.
 - Documented that `run_worker(on_error=...)` runs the callback before re-raising, so a user raise in `on_error` shadows the original worker-loop exception; coroutines are awaited.

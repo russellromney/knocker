@@ -17,7 +17,7 @@ from tests.helpers import (
 
 async def test_ingest_stores_event_before_worker_runs(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     with app.db.transaction() as tx:
         tx.execute("CREATE TABLE IF NOT EXISTS handled_events (event_id INTEGER PRIMARY KEY)")
 
@@ -90,7 +90,7 @@ async def test_ingest_stores_event_before_worker_runs(db_path):
 
 async def test_ingest_rolls_back_event_delivery_and_queue_when_enqueue_fails(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     with app.db.transaction() as tx:
         tx.execute(
@@ -126,7 +126,7 @@ async def test_ingest_rolls_back_event_delivery_and_queue_when_enqueue_fails(db_
 
 async def test_concurrent_ingest_same_dedupe_key_creates_one_event_and_two_deliveries(db_path):
     app_a = knocker.open(db_path)
-    app_a.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app_a.add_endpoint(name="stripe", path="/webhooks/stripe")
     app_b = knocker.open(db_path)
 
     async def ingest(app, idx):
@@ -152,7 +152,7 @@ async def test_concurrent_ingest_same_dedupe_key_creates_one_event_and_two_deliv
 
 async def test_multiple_workers_process_each_event_once(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     with app.db.transaction() as tx:
         tx.execute("CREATE TABLE handled_once (event_id INTEGER PRIMARY KEY)")
 
@@ -201,7 +201,7 @@ async def test_multiple_workers_process_each_event_once(db_path):
 
 async def test_idle_worker_wakes_on_wal_commit_without_waiting_for_poll_timeout(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     handled = asyncio.Event()
 
     @app.handle(endpoint="stripe")
@@ -227,7 +227,7 @@ async def test_idle_worker_wakes_on_wal_commit_without_waiting_for_poll_timeout(
 
 async def test_burst_ingest_then_worker_drain_smoke(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     @app.handle(endpoint="stripe")
     def handle(event, tx):
@@ -258,7 +258,7 @@ async def test_burst_ingest_then_worker_drain_smoke(db_path):
 
 async def test_duplicate_valid_deliveries_are_auditable_without_mutating_event(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     first_body = b'{"id":"evt_dup","n":1}'
     second_body = b'{"id":"evt_dup","n":2}'
@@ -296,7 +296,7 @@ async def test_duplicate_valid_deliveries_are_auditable_without_mutating_event(d
 
 async def test_failures_retry_then_dead_letter(db_path):
     app = knocker.open(db_path, max_attempts=2)
-    app.add_endpoint(name="slack", path="/webhooks/slack", provider="slack")
+    app.add_endpoint(name="slack", path="/webhooks/slack")
 
     attempts = []
 
@@ -339,7 +339,7 @@ async def test_failures_retry_then_dead_letter(db_path):
 
 async def test_missing_handler_is_dead_lettered_not_ignored(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -374,7 +374,7 @@ async def test_missing_handler_is_dead_lettered_not_ignored(db_path):
 
 async def test_claim_expiry_rolls_back_handled_state(db_path):
     app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     errors = []
 
     @app.handle(endpoint="stripe")
@@ -416,7 +416,7 @@ async def test_claim_expiry_rolls_back_handled_state(db_path):
 
 async def test_expired_claim_can_be_reclaimed_and_handler_may_run_twice(db_path):
     app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     with app.db.transaction() as tx:
         tx.execute("CREATE TABLE handled_after_reclaim (event_id INTEGER PRIMARY KEY)")
 
@@ -456,7 +456,7 @@ async def test_expired_claim_can_be_reclaimed_and_handler_may_run_twice(db_path)
 
 async def test_async_on_error_callback_is_awaited_and_user_raise_shadows_original(db_path):
     app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     awaited = []
 
     @app.handle(endpoint="stripe")
@@ -490,7 +490,7 @@ async def test_async_on_error_callback_is_awaited_and_user_raise_shadows_origina
     # shadow the original worker exception.
     app2_db_path = str(Path(db_path).with_name("app2.db"))
     app2 = knocker.open(app2_db_path, visibility_timeout_s=1, max_attempts=3)
-    app2.add_endpoint(name="stripe2", path="/webhooks/stripe2", provider="stripe")
+    app2.add_endpoint(name="stripe2", path="/webhooks/stripe2")
 
     @app2.handle(endpoint="stripe2")
     def slow_handle_2(event, tx):
@@ -514,7 +514,7 @@ async def test_async_on_error_callback_is_awaited_and_user_raise_shadows_origina
 
 async def test_multiple_concurrent_workers_have_independent_state(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     handled = []
     errors_a = []
@@ -575,7 +575,7 @@ async def test_multiple_concurrent_workers_have_independent_state(db_path):
 
 async def test_one_worker_failing_does_not_taint_other_workers_state(db_path):
     app = knocker.open(db_path, visibility_timeout_s=1, max_attempts=3)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     calls = {"count": 0}
 

@@ -54,8 +54,8 @@ async def test_supported_python_surface_has_docstrings(db_path):
 
 async def test_list_events_supports_filters_since_limit_and_stable_newest_first(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
-    app.add_endpoint(name="github", path="/webhooks/github", provider="github")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+    app.add_endpoint(name="github", path="/webhooks/github")
 
     first = app.ingest(
         endpoint="stripe",
@@ -109,7 +109,7 @@ async def test_list_events_supports_filters_since_limit_and_stable_newest_first(
 
 async def test_list_events_default_limit_caps_results(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     event_ids = []
     for idx in range(105):
@@ -138,7 +138,7 @@ async def test_list_deliveries_supports_filters_since_limit_and_newest_first(db_
             "header": "x-signature",
         },
     )
-    app.add_endpoint(name="github", path="/webhooks/github", provider="github")
+    app.add_endpoint(name="github", path="/webhooks/github")
 
     first = app.receive(
         endpoint="generic",
@@ -207,7 +207,7 @@ async def test_list_deliveries_supports_filters_since_limit_and_newest_first(db_
 
 async def test_ignore_public_surface_enforces_supported_statuses(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     received = app.ingest(
         endpoint="stripe",
@@ -280,7 +280,7 @@ async def test_ignore_public_surface_enforces_supported_statuses(db_path):
 
 async def test_ignore_received_event_prevents_later_worker_dispatch(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     seen = []
 
@@ -324,7 +324,7 @@ async def test_ignore_received_event_prevents_later_worker_dispatch(db_path):
 
 async def test_signature_valid_false_filter_includes_null_rows(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     invalid = app.ingest(
         endpoint="stripe",
@@ -355,7 +355,7 @@ async def test_signature_valid_false_filter_includes_null_rows(db_path):
 
 async def test_operator_filters_reject_non_integer_since_and_delivery_limit_zero(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
     app.ingest(
         endpoint="stripe",
         body=b'{"id":"evt-1"}',

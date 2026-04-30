@@ -7,6 +7,7 @@ from .models import (
     PruneEventsResult,
     WorkerState,
 )
+from .providers import Provider, ProviderRequest, ProviderResult
 
 __all__ = [
     "Delivery",
@@ -15,6 +16,9 @@ __all__ = [
     "Knocker",
     "PruneDeliveriesResult",
     "PruneEventsResult",
+    "Provider",
+    "ProviderRequest",
+    "ProviderResult",
     "WorkerState",
     "open",
 ]

@@ -1,0 +1,55 @@
+# 007-provider-registry-and-curated-plugins
+
+Verification:
+
+- `make test`
+  - Rust: 12 passed
+  - Python: 90 passed
+  - Node: 2 passed
+- `npm --prefix site run build`
+  - 11 pages built
+- Public docstring smoke
+  - all public surface has docstrings (Knocker, Provider, ProviderRequest, ProviderResult plus their public methods)
+- File-length check
+  - Python implementation files under 1000 lines (max: _knocker.py at 995)
+  - Python test files under 1000 lines (max: test_providers.py at 765)
+
+Provider-registry test inventory (tests/test_providers.py):
+
+- test_builtin_provider_versions_includes_stripe_and_github
+- test_provider_versions_returns_fresh_copy
+- test_register_provider_exposes_app_local_provider
+- test_register_provider_rejects_duplicate_names
+- test_register_provider_rejects_overriding_builtins
+- test_register_provider_validates_name_and_version
+- test_register_provider_requires_provider_instance
+- test_add_endpoint_rejects_unknown_provider_name
+- test_add_endpoint_rejects_missing_secrets_for_builtin
+- test_add_endpoint_rejects_unknown_provider_options
+- test_add_endpoint_validates_stripe_tolerance
+- test_add_endpoint_rejects_provider_options_without_registry_path
+- test_add_endpoint_rejects_provider_options_dict_shape
+- test_provider_unexpected_exception_creates_orphan_delivery
+- test_provider_returning_non_provider_result_creates_orphan_delivery
+- test_app_local_provider_accepts_and_extracts_metadata
+- test_app_local_provider_invalid_orphan_keeps_extracted_metadata
+
+GitHub provider test inventory (tests/test_providers.py):
+
+- test_github_valid_signature_creates_linked_event
+- test_github_invalid_signature_creates_orphan_with_metadata
+- test_github_missing_signature_header_rejected
+- test_github_missing_delivery_header_rejected
+- test_github_signature_must_use_sha256_prefix
+- test_github_dedupes_on_delivery_id
+
+Stripe regression and compatibility tests (tests/test_providers.py +
+tests/test_verification.py):
+
+- test_stripe_provider_via_registry_with_provider_options_tolerance
+- test_stripe_invalid_signature_orphan_preserves_extracted_metadata
+- test_explicit_receive_metadata_overrides_provider_extraction
+- test_user_delivery_key_callable_overrides_provider_extraction
+- test_legacy_verification_dict_stripe_routes_through_registry
+- test_legacy_hmac_verification_dict_with_github_label_extracts_via_preset
+- existing test_verification.py Stripe coverage (10 tests, unchanged)

@@ -120,7 +120,7 @@ async def test_python_open_migrates_v1_database_to_delivery_rows(db_path):
 
 async def test_prune_events_removes_old_terminal_events_and_linked_rows(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     first = app.ingest(
         endpoint="stripe",
@@ -177,7 +177,7 @@ async def test_prune_events_removes_old_terminal_events_and_linked_rows(db_path)
 
 async def test_prune_events_uses_strict_received_at_cutoff_and_oldest_first_limit(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     first = app.ingest(
         endpoint="stripe",
@@ -218,7 +218,7 @@ async def test_prune_events_uses_strict_received_at_cutoff_and_oldest_first_limi
 
 async def test_prune_events_counts_multiple_deliveries_and_attempts(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     first = app.ingest(
         endpoint="stripe",
@@ -262,7 +262,7 @@ async def test_prune_events_counts_multiple_deliveries_and_attempts(db_path):
 
 async def test_concurrent_prune_calls_serialize_without_double_counting(db_path):
     app_a = knocker.open(db_path)
-    app_a.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app_a.add_endpoint(name="stripe", path="/webhooks/stripe")
     event_ids = []
     for idx in range(10):
         result = app_a.ingest(
@@ -295,7 +295,7 @@ async def test_concurrent_prune_calls_serialize_without_double_counting(db_path)
 
 async def test_prune_events_rejects_invalid_status_inputs_and_types(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     with pytest.raises(TypeError, match="statuses must be a non-empty list or tuple of strings"):
         app.prune_events(statuses="handled", older_than=100, limit=1)
@@ -310,7 +310,7 @@ async def test_prune_events_rejects_invalid_status_inputs_and_types(db_path):
 
 async def test_prune_orphan_deliveries_only_removes_old_orphan_rows(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     linked = app.ingest(
         endpoint="stripe",
@@ -349,7 +349,7 @@ async def test_prune_orphan_deliveries_only_removes_old_orphan_rows(db_path):
 
 async def test_prune_events_only_cleans_live_jobs_for_this_knocker_queue(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -374,7 +374,7 @@ async def test_prune_events_only_cleans_live_jobs_for_this_knocker_queue(db_path
 
 async def test_prune_events_leaves_malformed_live_job_payloads_alone(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -402,7 +402,7 @@ async def test_prune_events_leaves_malformed_live_job_payloads_alone(db_path):
 
 async def test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -429,7 +429,7 @@ async def test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job
 
 async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypatch):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     result = app.ingest(
         endpoint="stripe",
@@ -461,7 +461,7 @@ async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypa
 
 async def test_prune_events_keeps_other_event_deliveries_intact(db_path):
     app = knocker.open(db_path)
-    app.add_endpoint(name="stripe", path="/webhooks/stripe", provider="stripe")
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
     first = app.ingest(
         endpoint="stripe",

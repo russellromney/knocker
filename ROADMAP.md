@@ -31,6 +31,7 @@ Knocker now keeps a small human-owned intent baseline alongside the roadmap:
 - `.intent/phases/004-minimal-retention-and-pruning/` records the minimal explicit pruning surface that is now part of the baseline.
 - `.intent/phases/005-ship-readiness/` records the docs-site and final pre-release hardening pass.
 - `.intent/phases/006-public-surface-and-reliability-hardening/` records the pre-`0.1.0` response to the intensive codebase review.
+- `.intent/phases/007-provider-registry-and-curated-plugins/` records the public provider plugin shape, `Provider` registry, and the curated GitHub built-in.
 - `CHANGELOG.md` summarizes completed work after it lands.
 
 ## Current Status
@@ -41,13 +42,13 @@ Implemented in this repo today:
 - Rust-backed ingress contract with append-only `Delivery` rows, deduped `Event` rows, and Honker enqueue
 - Rust-backed event lifecycle transitions
 - Python binding built with PyO3 and a thin Python wrapper
-- Python verified ingress for generic HMAC-SHA256 and Stripe
+- Python verified ingress for generic HMAC-SHA256 plus a `Provider` registry with built-in curated providers for Stripe and GitHub
+- Public Python provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `register_provider`, `provider_versions`) for app-local and community providers
 - Binding-owned active-secret rotation for supported verifiers
 - Stable Python operator surface for `get_event`, `list_events`, `get_delivery`, `list_deliveries`, `ignore`, `replay`, and `requeue`
 - Explicit `replay_delivery(delivery_id)` operator recovery for processing one stored receipt body without mutating the canonical event payload
 - Local Python worker state snapshots and optional worker-loop `on_error` callbacks
 - Minimal explicit Python pruning surface for `prune_events` and `prune_orphan_deliveries`
-- Provider presets for Stripe and GitHub correlation metadata
 - Node contract pressure-test via a loadable SQLite extension
 - `knockerlite` published on PyPI with Linux and macOS wheels and a tag-driven GitHub Actions release workflow
 
@@ -55,6 +56,7 @@ Still intentionally not implemented:
 
 - automatic retention jobs and richer retention policy
 - cross-binding operator parity beyond the Python surface
+- runtime / native / WASM provider loading, automatic provider discovery, and the repo-level `providers/<name>/` upstream catalog
 - Windows wheels (blocked on a `honker-core` Windows file-identity fix)
 - PyPI trusted publishing (currently uses an API token; OIDC migration is queued)
 
@@ -72,7 +74,7 @@ Trust polish (post-`0.1.0`):
 
 - Restore Windows wheels once `honker-core` ships its Windows file-identity fix; re-add Windows to the release matrix and CI.
 - Migrate the PyPI release workflow from API token auth to PyPI trusted publishing (OIDC).
-- Add a second real provider verification (GitHub or Slack) to prove the custom-verifier shape without committing to maintaining a long provider catalog.
+- Reconsider runtime provider loading and a cross-binding provider catalog only after ordinary host-language provider registration proves insufficient.
 - Extend retention: a per-prune audit row, richer policy options, explicit answers to "what did we delete, when, and why."
 - Publish honest ingress/worker throughput numbers.
 

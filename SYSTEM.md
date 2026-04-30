@@ -79,8 +79,13 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 ## Current baseline
 
 - The repo currently has the Rust core, Python binding, and Node contract smoke test.
-- The Python binding currently supports verified ingress for generic HMAC-SHA256 and Stripe, with binding-owned active-secret rotation plus provider presets for Stripe and GitHub correlation metadata.
+- The Python binding now exposes a public provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.register_provider(...)`, `Knocker.provider_versions(...)`) and ships built-in curated providers for `stripe` and `github`. Built-in providers are auto-registered per `Knocker` instance and cannot be overridden.
+- `add_endpoint(provider="name", secrets=[...], provider_options={...})` resolves names through that registry. Unknown provider names fail at endpoint registration. Built-in providers that require secrets reject missing/`None`/empty secrets at registration. `provider_options` is schema-checked.
+- Provider implementations return both verification outcome and extracted metadata in one `ProviderResult`. Invalid receipts still surface extracted provider metadata on the orphan delivery row when the provider was able to read it before signature failure.
+- Unexpected provider exceptions become invalid/orphan deliveries with a useful `signature_error`; a buggy app-local provider does not crash callers.
+- Generic HMAC verification stays available via the legacy `verification={"kind": "hmac-sha256", ...}` config path because its per-provider knobs do not fit the curated catalog. Legacy `verification={"kind": "stripe", ...}` continues to work and routes through the same Stripe provider implementation.
+- Explicit `receive(...)` metadata arguments still override provider-extracted metadata, and endpoint `delivery_key` / `event_key` callables still override provider extraction.
 - The Python API now exposes a stable operator surface for `get_event(...)`, `list_events(...)`, `get_delivery(...)`, `list_deliveries(...)`, `ignore(...)`, `replay(...)`, `requeue(...)`, `replay_delivery(...)`, `prune_events(...)`, and `prune_orphan_deliveries(...)`.
 - The Python worker exposes local `worker_states()` snapshots and optional `on_error` callbacks for worker-loop failures outside normal handler retry/dead-letter handling.
 - The Python binding validates operator timestamps and limits as integers, and validates Stripe tolerance windows as non-negative integers.
-- Automatic retention jobs, richer retention policy, and admin endpoints are not yet part of the baseline.
+- Automatic retention jobs, richer retention policy, native/WASM provider loading, and admin endpoints are not yet part of the baseline.

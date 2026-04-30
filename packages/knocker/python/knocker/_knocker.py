@@ -29,6 +29,13 @@ from knocker.models import (
     PruneEventsResult,
     WorkerState,
 )
+from knocker.providers import (
+    Provider,
+    ProviderRequest,
+    ProviderResult,
+    _builtin_provider_names,
+    _builtin_providers,
+)
 from knocker.queue import (
     _HonkerJob,
     _HonkerQueue,
@@ -37,13 +44,9 @@ from knocker.queue import (
 )
 from knocker.verifiers import (
     _EndpointConfig,
-    _IngressRequest,
-    _VerificationResult,
-    _build_provider_verifier,
-    _build_request_verifier,
-    _coerce_extractor,
-    _extract_optional,
-    _provider_preset,
+    _build_endpoint_config,
+    _validate_provider_for_registration,
+    _verify_and_extract,
 )
 
 
@@ -80,6 +83,33 @@ class Knocker:
         self._handlers: dict[tuple[str, Optional[str]], Handler] = {}
         self._endpoint_configs: dict[str, _EndpointConfig] = {}
         self._worker_states: dict[str, WorkerState] = {}
+        self._providers: dict[str, Provider] = {}
+        for builtin in _builtin_providers():
+            self._providers[builtin.name] = builtin
+        self._builtin_provider_names = _builtin_provider_names()
+
+    def register_provider(self, provider: Provider) -> None:
+        """Register an app-local or community provider on this Knocker instance.
+
+        Built-in provider names (``stripe``, ``github``) cannot be overridden;
+        register a hotfix under a distinct name and point endpoints at it.
+        Duplicate registrations fail rather than silently replacing.
+        """
+
+        _validate_provider_for_registration(
+            provider, self._providers, self._builtin_provider_names
+        )
+        self._providers[provider.name] = provider
+
+    def provider_versions(self) -> dict[str, str]:
+        """Return a fresh ``{name: version}`` map of registered providers.
+
+        Versions are provider implementation SemVer strings, not upstream
+        provider API versions. Useful for inspection, debugging, and release
+        notes; not part of any compatibility contract.
+        """
+
+        return {name: provider.version for name, provider in self._providers.items()}
 
     def add_endpoint(
         self,
@@ -92,28 +122,32 @@ class Knocker:
         delivery_key: Any = _UNSET,
         event_key: Any = _UNSET,
         secrets: Any = _UNSET,
+        provider_options: Any = _UNSET,
     ) -> None:
-        """Register or update an endpoint and its verification/extractor config."""
+        """Register or update an endpoint and its verification/extractor config.
 
-        if verification is not _UNSET and secrets is not _UNSET:
-            raise ValueError("pass either verification=... or secrets=..., not both")
+        ``provider="name"`` resolves through the registered provider registry
+        and fails immediately with ``ValueError`` for unknown names. Built-in
+        provider endpoints that require secrets must pass a non-empty
+        ``secrets=...`` value at registration time. Provider-specific tuning
+        such as Stripe's ``tolerance_s`` goes in ``provider_options={...}``;
+        unknown option keys are rejected by the provider with ``ValueError``.
 
-        preset = _provider_preset(provider)
-        if verification is _UNSET:
-            if secrets is _UNSET:
-                verifier = self._endpoint_configs.get(name, _EndpointConfig()).verifier
-            elif secrets is None:
-                verifier = None
-            else:
-                verifier = _build_provider_verifier(provider, secrets)
-        else:
-            verifier = _build_request_verifier(verification)
+        ``verification={...}`` remains the legacy explicit-config path for
+        generic HMAC and pre-registry Stripe usage. Passing both
+        ``verification=...`` and ``secrets=...`` is rejected.
+        """
 
-        config = _EndpointConfig(
-            verifier=verifier,
-            delivery_key=preset.delivery_key if delivery_key is _UNSET else _coerce_extractor(delivery_key, "delivery_key"),
-            event_key=preset.event_key if event_key is _UNSET else _coerce_extractor(event_key, "event_key"),
-            event_type=preset.event_type,
+        config = _build_endpoint_config(
+            providers=self._providers,
+            previous_config=self._endpoint_configs.get(name),
+            provider=provider,
+            verification=verification,
+            secrets=secrets,
+            provider_options=provider_options,
+            delivery_key=delivery_key,
+            event_key=event_key,
+            unset=_UNSET,
         )
 
         with self.db.transaction() as tx:
@@ -206,38 +240,40 @@ class Knocker:
         provider_delivery_id: Optional[str] = None,
         dedupe_key: Optional[str] = None,
     ) -> IngestResult:
-        """Verify, extract metadata, store the delivery, and enqueue new events."""
+        """Verify, extract metadata, store the delivery, and enqueue new events.
 
-        headers = headers or {}
-        query = query or {}
+        Explicit ``provider_event_id``, ``provider_delivery_id``, and
+        ``event_type`` arguments override provider-extracted metadata.
+        Invalid receipts still surface extracted metadata on the orphan
+        delivery row when the provider was able to read it before signature
+        failure.
+        """
+
+        headers = dict(headers or {})
+        query = dict(query or {})
         config = self._endpoint_configs.get(endpoint, _EndpointConfig())
-        request = _IngressRequest(method=method, headers=headers, query=query, body=body)
-        verification = (
-            _VerificationResult(True)
-            if config.verifier is None
-            else config.verifier.verify(body, headers)
-        )
-        resolved_provider_event_id = provider_event_id
-        if resolved_provider_event_id is None:
-            resolved_provider_event_id = _extract_optional(config.event_key, request)
-        resolved_provider_delivery_id = provider_delivery_id
-        if resolved_provider_delivery_id is None:
-            resolved_provider_delivery_id = _extract_optional(config.delivery_key, request)
-        resolved_event_type = event_type
-        if resolved_event_type is None:
-            resolved_event_type = _extract_optional(config.event_type, request)
+        request = ProviderRequest(method=method, headers=headers, query=query, body=body)
+        result = _verify_and_extract(config, request)
         return self.ingest(
             endpoint=endpoint,
             body=body,
             headers=headers,
             query=query,
             method=method,
-            event_type=resolved_event_type,
-            provider_event_id=resolved_provider_event_id,
-            provider_delivery_id=resolved_provider_delivery_id,
+            event_type=event_type if event_type is not None else result.event_type,
+            provider_event_id=(
+                provider_event_id
+                if provider_event_id is not None
+                else result.provider_event_id
+            ),
+            provider_delivery_id=(
+                provider_delivery_id
+                if provider_delivery_id is not None
+                else result.provider_delivery_id
+            ),
             dedupe_key=dedupe_key,
-            signature_valid=verification.valid,
-            signature_error=verification.error,
+            signature_valid=result.valid,
+            signature_error=result.signature_error,
         )
 
     def get_event(self, event_id: int) -> Event:
