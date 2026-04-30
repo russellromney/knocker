@@ -14,10 +14,12 @@ from knocker.coercion import (
     _coerce_prune_statuses,
     _coerce_since,
     _duration_ms,
+    _sql_placeholders,
+)
+from knocker.job_payload import (
     _event_id_from_payload_json,
     _optional_payload_int,
     _required_payload_int,
-    _sql_placeholders,
 )
 from knocker.models import (
     Delivery,
@@ -45,7 +47,6 @@ from knocker.queue import (
 from knocker.verifiers import (
     _EndpointConfig,
     _build_endpoint_config,
-    _validate_provider_for_registration,
     _verify_and_extract,
 )
 
@@ -73,7 +74,7 @@ class Knocker:
     ):
         self.db_path = db_path
         self.db = _core_open(db_path, max_readers=max_readers)
-        self.queue = _HonkerQueue(
+        self._queue = _HonkerQueue(
             self.db,
             queue_name,
             visibility_timeout_s=visibility_timeout_s,
@@ -88,25 +89,23 @@ class Knocker:
             self._providers[builtin.name] = builtin
         self._builtin_provider_names = _builtin_provider_names()
 
-    def register_provider(self, provider: Provider) -> None:
-        """Register an app-local or community provider on this Knocker instance.
+    @property
+    def queue_name(self) -> str:
+        """Return the Honker queue name this Knocker dispatches through.
 
-        Built-in provider names (``stripe``, ``github``) cannot be overridden;
-        register a hotfix under a distinct name and point endpoints at it.
-        Duplicate registrations fail rather than silently replacing.
+        Inspection-only; the underlying queue object is internal.
         """
 
-        _validate_provider_for_registration(
-            provider, self._providers, self._builtin_provider_names
-        )
-        self._providers[provider.name] = provider
+        return self._queue.name
 
     def provider_versions(self) -> dict[str, str]:
-        """Return a fresh ``{name: version}`` map of registered providers.
+        """Return a fresh ``{name: version}`` map of curated built-in providers.
 
-        Versions are provider implementation SemVer strings, not upstream
-        provider API versions. Useful for inspection, debugging, and release
-        notes; not part of any compatibility contract.
+        String provider names are reserved for curated built-ins (``stripe``,
+        ``github``); app-local and community providers use the instance path
+        (``add_endpoint(provider=AcmeProvider(), ...)``) and do not appear
+        here. Versions are implementation SemVer strings, not part of any
+        compatibility contract.
         """
 
         return {name: provider.version for name, provider in self._providers.items()}
@@ -116,7 +115,7 @@ class Knocker:
         *,
         name: str,
         path: str,
-        provider: Optional[str] = None,
+        provider: Any = None,
         enabled: bool = True,
         verification: Any = _UNSET,
         delivery_key: Any = _UNSET,
@@ -126,20 +125,18 @@ class Knocker:
     ) -> None:
         """Register or update an endpoint and its verification/extractor config.
 
-        ``provider="name"`` resolves through the registered provider registry
-        and fails immediately with ``ValueError`` for unknown names. Built-in
-        provider endpoints that require secrets must pass a non-empty
-        ``secrets=...`` value at registration time. Provider-specific tuning
-        such as Stripe's ``tolerance_s`` goes in ``provider_options={...}``;
-        unknown option keys are rejected by the provider with ``ValueError``.
-
-        ``verification={...}`` remains the legacy explicit-config path for
-        generic HMAC and pre-registry Stripe usage. Passing both
-        ``verification=...`` and ``secrets=...`` is rejected.
+        ``provider`` is either a curated provider name string (``"stripe"``,
+        ``"github"``) or a ``knocker.Provider`` instance for app-local /
+        community providers. Curated string names are reserved for built-ins;
+        instance path is the preferred shape for everything else. Unknown
+        names and providers that require non-empty ``secrets=...`` fail at
+        registration. ``provider_options={...}`` is schema-checked.
+        ``verification={...}`` is the legacy explicit-config path.
         """
 
-        config = _build_endpoint_config(
+        config, stored_provider_tag = _build_endpoint_config(
             providers=self._providers,
+            builtin_names=self._builtin_provider_names,
             previous_config=self._endpoint_configs.get(name),
             provider=provider,
             verification=verification,
@@ -153,7 +150,7 @@ class Knocker:
         with self.db.transaction() as tx:
             tx.query(
                 "SELECT knocker_endpoint_upsert(?, ?, ?, ?)",
-                [name, path, provider, 1 if enabled else 0],
+                [name, path, stored_provider_tag, 1 if enabled else 0],
             )
         self._endpoint_configs[name] = config
 
@@ -214,7 +211,7 @@ class Knocker:
                     provider_delivery_id,
                     event_type,
                     dedupe_key,
-                    self.queue.name,
+                    self._queue.name,
                     self.max_attempts,
                 ],
             )
@@ -424,7 +421,7 @@ class Knocker:
                 raise ValueError(f"event {event_id} with status {status} cannot be replayed")
             tx.query(
                 "SELECT knocker_replay(?, ?, ?)",
-                [int(event_id), self.queue.name, self.max_attempts],
+                [int(event_id), self._queue.name, self.max_attempts],
             )
 
     def requeue(self, event_id: int) -> None:
@@ -439,7 +436,7 @@ class Knocker:
                 raise ValueError(f"event {event_id} with status {status} cannot be requeued")
             tx.query(
                 "SELECT knocker_requeue(?, ?, ?)",
-                [int(event_id), self.queue.name, self.max_attempts],
+                [int(event_id), self._queue.name, self.max_attempts],
             )
 
     def replay_delivery(self, delivery_id: int) -> None:
@@ -484,7 +481,7 @@ class Knocker:
             tx.query(
                 "SELECT honker_enqueue(?, ?, ?, ?, ?, ?, ?) AS job_id",
                 [
-                    self.queue.name,
+                    self._queue.name,
                     json.dumps(
                         {"event_id": delivery.event_id, "delivery_id": delivery.id},
                         sort_keys=True,
@@ -606,7 +603,7 @@ class Knocker:
             FROM _honker_live
             WHERE queue=?
             """,
-            [self.queue.name],
+            [self._queue.name],
         )
         job_ids: list[int] = []
         for row in rows:
@@ -670,18 +667,13 @@ class Knocker:
         """Claim and dispatch jobs until stopped.
 
         Handler exceptions use Knocker's retry/dead-letter path. Worker-loop
-        exceptions outside normal handler handling update local worker state,
-        call ``on_error`` when provided, and are re-raised for app-owned
-        supervision.
-
-        ``on_error`` runs *before* the re-raise, so an exception inside the
-        callback shadows the original worker-loop exception. It may be sync
-        or async; coroutines are awaited.
+        exceptions update local state, call ``on_error`` (sync or async; a
+        raise inside it shadows the original), then re-raise.
         """
 
         worker_id = worker_id or f"knocker-{uuid.uuid4().hex[:8]}"
         self._set_worker_state(worker_id, running=True, current_event_id=None)
-        claims = self.queue.claim(worker_id, idle_poll_s=idle_poll_s)
+        claims = self._queue.claim(worker_id, idle_poll_s=idle_poll_s)
         try:
             while True:
                 if stop_event is not None and stop_event.is_set():
@@ -737,12 +729,12 @@ class Knocker:
                 if event is None:
                     # Best-effort ack: a pruned event means this claim is stale retention
                     # residue, so we exit quietly even if the live row is already gone.
-                    self.queue.ack(job.id, job.worker_id, tx=tx)
+                    self._queue.ack(job.id, job.worker_id, tx=tx)
                     return
                 if event.status == "ignored":
                     # Ignore is an operator override, so a lingering claim should be drained
                     # quietly rather than crashing the worker if the claim already expired.
-                    self.queue.ack(job.id, job.worker_id, tx=tx)
+                    self._queue.ack(job.id, job.worker_id, tx=tx)
                     return
                 delivery_id = _optional_payload_int(job.payload, "delivery_id")
                 handler_event = event
@@ -772,7 +764,7 @@ class Knocker:
                         ],
                     )
                     _require_queue_transition(
-                        self.queue.fail(
+                        self._queue.fail(
                             job.id,
                             job.worker_id,
                             (
@@ -791,7 +783,7 @@ class Knocker:
                 duration_ms = _duration_ms(start)
                 tx.query("SELECT knocker_mark_handled(?, ?)", [event_id, duration_ms])
                 _require_queue_transition(
-                    self.queue.ack(job.id, job.worker_id, tx=tx),
+                    self._queue.ack(job.id, job.worker_id, tx=tx),
                     action="ack",
                     job_id=job.id,
                     event_id=event_id,
@@ -820,14 +812,14 @@ class Knocker:
             )
             if terminal:
                 _require_queue_transition(
-                    self.queue.fail(job.id, job.worker_id, str(exc), tx=tx),
+                    self._queue.fail(job.id, job.worker_id, str(exc), tx=tx),
                     action="fail",
                     job_id=job.id,
                     event_id=event_id,
                 )
             else:
                 _require_queue_transition(
-                    self.queue.retry(job.id, job.worker_id, 0, str(exc), tx=tx),
+                    self._queue.retry(job.id, job.worker_id, 0, str(exc), tx=tx),
                     action="retry",
                     job_id=job.id,
                     event_id=event_id,

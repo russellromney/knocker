@@ -4,7 +4,14 @@
 
 ### Added
 
-- Added a public Python provider plugin surface: `Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.register_provider(...)`, and `Knocker.provider_versions(...)`. App-local and community providers register on a single `Knocker` instance and use the same interface as built-in curated providers.
+- Added a repo-level curated provider catalog under `providers/<name>/` with `metadata.json` plus binding-neutral JSON `fixtures/`. Stripe and GitHub each ship valid, invalid-signature, missing-required-header, and (for Stripe) timestamp-tolerance fixtures. The catalog is repo-only conformance material in this phase; runtime plugin loading remains intentionally deferred.
+- Added `tests/test_provider_conformance.py` which loads every fixture under `providers/<name>/fixtures/` and asserts the bundled Python provider produces the expected verification outcome and extracted metadata. Stripe fixtures use explicit clock injection (`request.now_s`) so absolute timestamps stay valid forever.
+- Added a `Provider`-instance path to `add_endpoint(provider=AcmeProvider(), secrets=[...])` for app-local and community providers. Curated string names (`"stripe"`, `"github"`) remain reserved for built-ins; an instance whose `.name` collides with a curated name is rejected.
+- Added `Knocker.queue_name` as a read-only string property for tests and operator queries that need the configured Honker queue name. The underlying queue object is no longer publicly accessible as `app.queue`.
+- Added a curated-provider contribution guide (`/guides/contributing-providers/`) documenting the catalog directory layout, `metadata.json` schema, fixture JSON schema, support promise, and the deliberate-review rule for fixture changes.
+- Added an import-path stability regression test pinning `knocker.Provider`, `knocker.ProviderRequest`, `knocker.ProviderResult`, `Knocker.provider_versions`, and `Knocker.queue_name` as the public surface, and asserting `Knocker.register_provider` is no longer present.
+- Added two regression tests for the Phase 008 Implementation Review N1 finding: a fresh `Provider` instance with the same `.name` as the previous one must rebuild the verifier (instance equality is not by name), and a re-`add_endpoint(...)` with a new instance but no new secrets must fail loudly rather than silently reusing the previous verifier.
+- Added a public Python provider plugin surface: `Provider`, `ProviderRequest`, `ProviderResult`, and `Knocker.provider_versions(...)`. App-local and community providers pass a `Provider` instance directly to `add_endpoint(...)`; there is no global string-lookup registry for non-curated providers.
 - Added a built-in curated `github` provider that verifies `X-Hub-Signature-256` (`sha256=<hex hmac>`), extracts `X-GitHub-Delivery` and `X-GitHub-Event`, and uses the delivery id as the dedupe identity (stable across GitHub dashboard redelivery).
 - Added `add_endpoint(..., provider_options={...})` for provider-specific tuning such as Stripe `tolerance_s`. Unknown option keys are rejected with `ValueError`.
 - Added a comprehensive `tests/test_providers.py` covering the registry surface, GitHub valid/invalid/missing-header/missing-delivery cases, app-local providers, orphan-delivery-with-metadata invariants, provider exception safety, and compatibility paths.
@@ -14,12 +21,25 @@
 - Added two multi-worker isolation tests confirming concurrent workers maintain independent `WorkerState` and that one worker's failure does not contaminate another's terminal state.
 - Added an operator runbook covering dead events, invalid/orphan deliveries, worker failures, replay/requeue/replay-delivery recovery, and pruning.
 
+### Removed
+
+- Removed `Knocker.register_provider(...)`. String provider names are now reserved exclusively for curated built-ins; app-local and community providers pass a `Provider` instance directly to `add_endpoint(provider=AcmeProvider(), ...)`. Removing the string registry eliminates the upgrade-collision failure mode where a future curated built-in name could clash with a community provider registered under the same string.
+
+### Fixed
+
+- Re-`add_endpoint(...)` with a fresh `Provider` instance whose `.name` matches the previous one no longer silently reuses the old verifier. Instance equality is not by name; a different `Provider` object is treated as a different implementation, and the verifier is rebuilt (or the call rejects when secrets are missing). The same-name verifier-reuse shortcut is now gated to the curated string-name re-registration path only.
+
 ### Changed
 
+- Built-in provider implementations now live in sibling internal modules (`knocker._builtin_stripe`, `knocker._builtin_github`); `knocker.providers` stays the public facade with `Provider`, `ProviderRequest`, `ProviderResult`, and shared helpers. The public import paths for `knocker.Provider`, `knocker.ProviderRequest`, and `knocker.ProviderResult` are unchanged.
+- `_StripeProvider` now accepts an internal `clock` constructor argument so the conformance fixture loader can evaluate timestamp tolerance against an absolute, fixture-frozen point in time. Production usage retains wall-clock semantics; the seam is not part of the public `Provider` contract.
+- Honker job payload helpers moved out of `knocker.coercion` into a new `knocker.job_payload` module. `coercion.py` is now scoped to truly generic argument coercion (limit, since, older_than, bool filter, prune statuses, duration_ms).
+- `app.queue` is no longer a public attribute. The raw Honker queue object is internal (`app._queue`); the small public inspection surface is `app.queue_name`. Tests that previously called `app.queue.claim_batch(...)` for low-level worker-dispatch scenarios use raw SQL through `app.db` instead, so the queue boundary stays explicit.
+- Documentation now teaches app-local and community providers exclusively through the `Provider`-instance path; the legacy `register_provider(...)` string-name registry has been retired (see "Removed" below).
 - The Stripe verified-ingress path now routes through the new provider registry without any intentional behavior change. Existing `provider="stripe", secrets=[...]` and `verification={"kind": "stripe", ...}` configurations continue to work, including secret rotation and timestamp tolerance.
 - `provider="github"` is now a curated built-in provider rather than a metadata-only preset. Endpoints using it must pass `secrets=[...]`; verification, delivery id extraction, and event type extraction now all come from the provider implementation.
-- `add_endpoint(provider="name", ...)` resolves through the per-`Knocker` provider registry. Unknown provider names fail at registration. Built-in providers that require secrets reject missing/`None`/empty `secrets=...` at registration so misconfigured endpoints can no longer silently accept all deliveries.
-- Built-in provider names cannot be overridden via `register_provider(...)`; an explicit override knob is intentionally deferred. Adding a new built-in provider name is now called out as a compatibility-affecting release because it can collide with an app-local/community provider of the same name.
+- `add_endpoint(provider="name", ...)` resolves only curated built-in names (`stripe`, `github`). Unknown string names fail at registration. App-local and community providers must use the instance path. Built-in providers that require secrets reject missing/`None`/empty `secrets=...` at registration so misconfigured endpoints can no longer silently accept all deliveries.
+- Adding a new built-in provider name is no longer a compatibility-affecting collision risk for community providers, because community providers no longer compete in the same string namespace.
 - Provider implementations return both verification outcome and extracted metadata in one `ProviderResult`. Invalid receipts retain extracted provider metadata on the orphan delivery row when the provider was able to read it before signature failure.
 - An unexpected exception inside `Provider.verify(...)` is now turned into a verification failure with a useful `signature_error` and an orphan delivery, rather than crashing the caller.
 - `ProviderRequest.json()` raises `ValueError` on non-JSON bodies and caches its parsed result; provider authors should guard with `try/except` for endpoints that may receive non-JSON payloads.

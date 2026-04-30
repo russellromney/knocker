@@ -1,0 +1,17 @@
+{
+  "description": "Missing Stripe-Signature header should reject; extracted body metadata still surfaces on the orphan delivery.",
+  "request": {
+    "method": "POST",
+    "headers": {},
+    "query": {},
+    "body": "{\"id\":\"evt_1\",\"type\":\"checkout.session.completed\"}",
+    "secrets": ["whsec_test"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing signature header: stripe-signature",
+    "provider_event_id": "evt_1",
+    "event_type": "checkout.session.completed"
+  }
+}

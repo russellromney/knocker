@@ -303,7 +303,7 @@ async def test_ignore_received_event_prevents_later_worker_dispatch(db_path):
 
     deadline = asyncio.get_running_loop().time() + 1.0
     while asyncio.get_running_loop().time() < deadline:
-        rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+        rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
         if rows[0]["c"] == 0:
             break
         await asyncio.sleep(0.05)
@@ -319,7 +319,7 @@ async def test_ignore_received_event_prevents_later_worker_dispatch(db_path):
         [event_id],
     )
     assert rows[0]["c"] == 1
-    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert live_rows[0]["c"] == 0
 
 async def test_signature_valid_false_filter_includes_null_rows(db_path):

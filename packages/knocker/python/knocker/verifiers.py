@@ -185,16 +185,23 @@ def _legacy_preset(provider: Optional[str]) -> _ProviderPreset:
 def _build_endpoint_config(
     *,
     providers: dict[str, Provider],
+    builtin_names: frozenset[str],
     previous_config: Optional[_EndpointConfig],
-    provider: Optional[str],
+    provider: Any,
     verification: Any,
     secrets: Any,
     provider_options: Any,
     delivery_key: Any,
     event_key: Any,
     unset: Any,
-) -> _EndpointConfig:
-    """Assemble a validated ``_EndpointConfig`` from raw add_endpoint args."""
+) -> tuple[_EndpointConfig, Optional[str]]:
+    """Assemble a validated ``_EndpointConfig`` from raw add_endpoint args.
+
+    Returns ``(config, stored_provider_tag)``. ``stored_provider_tag`` is the
+    string written to the endpoint row's provider column: the lowercased
+    string name for the curated/string path, ``instance.name`` for the
+    instance path, or ``None`` when no provider was passed.
+    """
 
     if verification is not unset and secrets is not unset:
         raise ValueError("pass either verification=... or secrets=..., not both")
@@ -203,15 +210,26 @@ def _build_endpoint_config(
             "provider_options requires the provider registry path; "
             "pass it alongside secrets=..., not verification=..."
         )
-    provider_name = (
-        provider.lower() if isinstance(provider, str) and provider else None
-    )
-    if (
-        provider_name is not None
-        and provider_name not in providers
-        and verification is unset
-    ):
-        raise ValueError(f"unknown provider: {provider!r}")
+
+    instance: Optional[Provider] = None
+    provider_name: Optional[str] = None
+    if isinstance(provider, Provider):
+        _validate_instance_provider(provider, builtin_names)
+        instance = provider
+        provider_name = provider.name
+    elif isinstance(provider, str) and provider:
+        provider_name = provider.lower()
+        if (
+            provider_name not in providers
+            and verification is unset
+        ):
+            raise ValueError(f"unknown provider: {provider!r}")
+    elif provider is not None:
+        raise TypeError(
+            "provider must be a curated provider name string, a knocker.Provider "
+            "instance, or None"
+        )
+
     preset = _legacy_preset(provider_name)
     delivery_key_override = (
         None if delivery_key is unset else _coerce_extractor(delivery_key, "delivery_key")
@@ -221,6 +239,7 @@ def _build_endpoint_config(
     )
     verifier = _resolve_endpoint_verifier(
         providers=providers,
+        instance=instance,
         previous_config=previous_config,
         provider_arg=provider,
         provider_name=provider_name,
@@ -229,7 +248,7 @@ def _build_endpoint_config(
         provider_options=provider_options,
         unset=unset,
     )
-    return _EndpointConfig(
+    config = _EndpointConfig(
         verifier=verifier,
         provider_name=provider_name,
         legacy_delivery_key=preset.delivery_key,
@@ -238,13 +257,44 @@ def _build_endpoint_config(
         delivery_key=delivery_key_override,
         event_key=event_key_override,
     )
+    return config, provider_name
+
+
+def _validate_instance_provider(
+    instance: Provider, builtin_names: frozenset[str]
+) -> None:
+    """Validate a ``Provider`` instance passed via the instance path.
+
+    The instance path is the only path for app-local and community
+    providers. Curated string names are reserved for built-ins, so an
+    instance whose ``name`` collides with a built-in is rejected. The
+    instance's ``name`` must be a non-empty lowercase identifier and its
+    ``version`` must be a SemVer string.
+    """
+
+    name = instance.name
+    if not isinstance(name, str) or not name or name != name.lower():
+        raise ValueError(
+            "provider instance name must be a non-empty lowercase string"
+        )
+    version = instance.version
+    if not isinstance(version, str) or not _SEMVER_RE.fullmatch(version):
+        raise ValueError(
+            "provider instance version must be a semantic version string like '1.2.3'"
+        )
+    if name in builtin_names:
+        raise ValueError(
+            f"provider instance name {name!r} collides with a built-in curated "
+            "provider; pick a distinct name for app-local or community providers"
+        )
 
 
 def _resolve_endpoint_verifier(
     *,
     providers: dict[str, Provider],
+    instance: Optional[Provider],
     previous_config: Optional[_EndpointConfig],
-    provider_arg: Optional[str],
+    provider_arg: Any,
     provider_name: Optional[str],
     verification: Any,
     secrets: Any,
@@ -253,35 +303,46 @@ def _resolve_endpoint_verifier(
 ) -> Optional[_Verifier]:
     """Resolve an ``_EndpointConfig.verifier`` from ``add_endpoint`` arguments.
 
-    Centralizes the precedence rules so the public ``add_endpoint`` method
-    stays readable: legacy ``verification={...}`` wins when present; otherwise
-    ``provider="X", secrets=...`` builds a registry-backed verifier; missing
-    secrets for a built-in provider that requires them is a config error.
+    Precedence: legacy ``verification={...}`` wins when present; otherwise an
+    instance-path ``Provider`` or a registered string name builds a verifier;
+    missing secrets for a provider that requires them is a config error.
     """
 
     if verification is not unset:
         return _build_legacy_verifier(verification, providers)
+
+    def _provider_for(name: Optional[str]) -> Provider:
+        if instance is not None:
+            return instance
+        if name is None:
+            raise ValueError("secrets=... requires a provider")
+        return providers[name]
+
     if secrets is not unset:
-        if provider_name is None:
-            raise ValueError("secrets=... requires a provider name")
-        provider_obj = providers[provider_name]
+        provider_obj = _provider_for(provider_name)
         options = _coerce_provider_options(
             None if provider_options is unset else provider_options, provider_obj
         )
         if provider_obj.requires_secrets:
             if secrets is None:
                 raise ValueError(
-                    f"provider {provider_arg!r} requires non-empty secrets=..."
+                    f"provider {_describe_provider(provider_arg)} requires non-empty secrets=..."
                 )
             secrets_tuple = _coerce_secrets(secrets)
         else:
             secrets_tuple = () if secrets is None else _coerce_secrets(secrets)
         return _ProviderVerifier(provider_obj, secrets_tuple, options)
     if provider_name is not None:
-        provider_obj = providers[provider_name]
+        provider_obj = _provider_for(provider_name)
         if provider_obj.requires_secrets:
             if (
-                previous_config is not None
+                # Only the curated string-name path may reuse the previous
+                # verifier as a no-secrets re-registration. A fresh provider
+                # instance is authoritative and must rebuild the verifier
+                # even when its ``.name`` matches the previous one — same
+                # name is not the same implementation.
+                instance is None
+                and previous_config is not None
                 and previous_config.verifier is not None
                 and previous_config.provider_name == provider_name
             ):
@@ -291,7 +352,7 @@ def _resolve_endpoint_verifier(
                     )
                 return previous_config.verifier
             raise ValueError(
-                f"provider {provider_arg!r} requires non-empty secrets=..."
+                f"provider {_describe_provider(provider_arg)} requires non-empty secrets=..."
             )
         options = _coerce_provider_options(
             None if provider_options is unset else provider_options, provider_obj
@@ -299,9 +360,17 @@ def _resolve_endpoint_verifier(
         return _ProviderVerifier(provider_obj, (), options)
     if provider_options is not unset:
         raise ValueError(
-            "provider_options=... requires a provider name and secrets=..."
+            "provider_options=... requires a provider and secrets=..."
         )
     return previous_config.verifier if previous_config is not None else None
+
+
+def _describe_provider(provider_arg: Any) -> str:
+    """Render a provider arg for error messages without leaking object reprs."""
+
+    if isinstance(provider_arg, Provider):
+        return repr(provider_arg.name)
+    return repr(provider_arg)
 
 
 def _verify_and_extract(
@@ -358,27 +427,6 @@ def _extract_optional(
     if value is None:
         return None
     return str(value)
-
-
-def _validate_provider_for_registration(
-    provider: Provider,
-    registry: dict[str, Provider],
-    builtin_names: frozenset[str],
-) -> None:
-    if not isinstance(provider, Provider):
-        raise TypeError("provider must be a knocker.Provider instance")
-    name = provider.name
-    if not isinstance(name, str) or not name or name != name.lower():
-        raise ValueError("provider name must be a non-empty lowercase string")
-    version = provider.version
-    if not isinstance(version, str) or not _SEMVER_RE.fullmatch(version):
-        raise ValueError(
-            "provider version must be a semantic version string like '1.2.3'"
-        )
-    if name in builtin_names:
-        raise ValueError(f"cannot override built-in provider: {name!r}")
-    if name in registry:
-        raise ValueError(f"provider already registered: {name!r}")
 
 
 def _coerce_secrets_from_verification(verification: dict[str, Any]) -> tuple[bytes, ...]:

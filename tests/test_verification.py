@@ -43,7 +43,7 @@ async def test_receive_valid_generic_hmac_is_stored_and_enqueued(db_path):
     assert delivery.signature_error is None
     assert delivery.event_id == event_id
     assert event.status == "received"
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 1
 
 async def test_receive_invalid_generic_hmac_creates_orphan_delivery(db_path):
@@ -74,7 +74,7 @@ async def test_receive_invalid_generic_hmac_creates_orphan_delivery(db_path):
     assert delivery.signature_valid is False
     assert "signature mismatch" in (delivery.signature_error or "")
     assert app.list_events() == []
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 0
 
 async def test_receive_valid_stripe_signature_is_stored_and_enqueued(db_path):
@@ -102,7 +102,7 @@ async def test_receive_valid_stripe_signature_is_stored_and_enqueued(db_path):
     assert result.status_code == 204
     assert delivery.signature_valid is True
     assert event.status == "received"
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 1
 
 async def test_receive_invalid_stripe_signature_creates_orphan_delivery(db_path):

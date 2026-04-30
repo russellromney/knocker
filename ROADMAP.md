@@ -32,6 +32,7 @@ Knocker now keeps a small human-owned intent baseline alongside the roadmap:
 - `.intent/phases/005-ship-readiness/` records the docs-site and final pre-release hardening pass.
 - `.intent/phases/006-public-surface-and-reliability-hardening/` records the pre-`0.1.0` response to the intensive codebase review.
 - `.intent/phases/007-provider-registry-and-curated-plugins/` records the public provider plugin shape, `Provider` registry, and the curated GitHub built-in.
+- `.intent/phases/008-provider-conformance-and-internal-cleanup/` records the repo-level provider catalog, conformance fixtures, the `Provider`-instance path on `add_endpoint(...)`, and the `app.queue` / `coercion.py` internal cleanup.
 - `CHANGELOG.md` summarizes completed work after it lands.
 
 ## Current Status
@@ -42,8 +43,8 @@ Implemented in this repo today:
 - Rust-backed ingress contract with append-only `Delivery` rows, deduped `Event` rows, and Honker enqueue
 - Rust-backed event lifecycle transitions
 - Python binding built with PyO3 and a thin Python wrapper
-- Python verified ingress for generic HMAC-SHA256 plus a `Provider` registry with built-in curated providers for Stripe and GitHub
-- Public Python provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `register_provider`, `provider_versions`) for app-local and community providers
+- Python verified ingress for generic HMAC-SHA256 plus curated built-in providers for Stripe and GitHub (resolved via the reserved `provider="stripe"` / `provider="github"` string names)
+- Public Python provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.provider_versions`) with the instance path on `add_endpoint(provider=AcmeProvider(), ...)` as the only path for app-local and community providers — no global string-lookup registry
 - Binding-owned active-secret rotation for supported verifiers
 - Stable Python operator surface for `get_event`, `list_events`, `get_delivery`, `list_deliveries`, `ignore`, `replay`, and `requeue`
 - Explicit `replay_delivery(delivery_id)` operator recovery for processing one stored receipt body without mutating the canonical event payload
@@ -56,7 +57,7 @@ Still intentionally not implemented:
 
 - automatic retention jobs and richer retention policy
 - cross-binding operator parity beyond the Python surface
-- runtime / native / WASM provider loading, automatic provider discovery, and the repo-level `providers/<name>/` upstream catalog
+- runtime / native / WASM provider loading and automatic provider discovery (the repo-level `providers/<name>/` source-only catalog landed in Phase 008)
 - Windows wheels (blocked on a `honker-core` Windows file-identity fix)
 - PyPI trusted publishing (currently uses an API token; OIDC migration is queued)
 
@@ -66,9 +67,12 @@ The 006 follow-up queue (docstrings, code comments, and the four missing tests) 
 
 Code organization:
 
-- Move Honker payload-shape helpers out of `coercion.py` into a better-named `payload.py` or `queue.py` home.
-- Decide whether `app.queue` is intentionally public. If yes, remove misleading underscores from `_HonkerQueue` / `_HonkerJob` or expose a smaller documented queue inspection surface.
 - Consider exposing a core `knocker_reset_event` UDF so Python `replay_delivery(...)` and Rust replay/requeue share exactly one reset implementation.
+
+Closed in Phase 008 (`provider-conformance-and-internal-cleanup`):
+
+- Honker payload-shape helpers now live in `knocker.job_payload`; `knocker.coercion` is scoped to generic argument coercion only.
+- `app.queue` is internal (`app._queue`); the public inspection surface is `app.queue_name`.
 
 Trust polish (post-`0.1.0`):
 

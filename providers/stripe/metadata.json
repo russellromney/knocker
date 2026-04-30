@@ -1,0 +1,7 @@
+{
+  "name": "stripe",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Stripe webhook signature verification with overlapping secret rotation and a configurable timestamp tolerance. Extracts the upstream event id and event type from the JSON body when present.",
+  "upstream_docs_url": "https://stripe.com/docs/webhooks/signatures"
+}

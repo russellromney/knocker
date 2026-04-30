@@ -119,7 +119,7 @@ async def test_ingest_rolls_back_event_delivery_and_queue_when_enqueue_fails(db_
     delivery_rows = app.db.query(
         "SELECT COUNT(*) AS c FROM knocker_deliveries WHERE provider_event_id='evt-rollback-ingest'"
     )
-    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert event_rows[0]["c"] == 0
     assert delivery_rows[0]["c"] == 0
     assert live_rows[0]["c"] == 0
@@ -147,7 +147,7 @@ async def test_concurrent_ingest_same_dedupe_key_creates_one_event_and_two_deliv
     assert {first.duplicate, second.duplicate} == {False, True}
     event_id = _require_event_id(first if first.event_id is not None else second)
     assert len(app_a.list_deliveries(event_id=event_id)) == 2
-    rows = app_a.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app_a.queue.name])
+    rows = app_a.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app_a.queue_name])
     assert rows[0]["c"] == 1
 
 async def test_multiple_workers_process_each_event_once(db_path):
@@ -291,7 +291,7 @@ async def test_duplicate_valid_deliveries_are_auditable_without_mutating_event(d
     assert [delivery.provider_delivery_id for delivery in deliveries] == ["delivery-2", "delivery-1"]
     assert [delivery.body for delivery in deliveries] == [second_body, first_body]
 
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 1
 
 async def test_failures_retry_then_dead_letter(db_path):
@@ -410,7 +410,7 @@ async def test_claim_expiry_rolls_back_handled_state(db_path):
 
     live_rows = app.db.query(
         "SELECT state FROM _honker_live WHERE queue=?",
-        [app.queue.name],
+        [app.queue_name],
     )
     assert live_rows[0]["state"] == "processing"
 

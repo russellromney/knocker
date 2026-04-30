@@ -6,12 +6,41 @@ import time
 import knocker
 import pytest
 
+from knocker.queue import _HonkerJob
+
 from tests.helpers import (
     generic_hmac_signature as _generic_hmac_signature,
     require_event_id as _require_event_id,
     stripe_signature as _stripe_signature,
     wait_for_status as _wait_for_status,
 )
+
+
+def _claim_one_for_test(app, worker_id: str) -> list:
+    """Claim up to one Honker job via raw SQL for tests that exercise dispatch.
+
+    Replacement for the removed semi-public ``app.queue.claim_batch(...)``
+    escape hatch: tests that need to drive the worker dispatch path directly
+    use the same SQL the internal claim helper uses, but without reaching
+    into the underscored queue object.
+    """
+
+    with app.db.transaction() as tx:
+        rows = tx.query(
+            "SELECT honker_claim_batch(?, ?, ?, ?) AS rows_json",
+            [app.queue_name, worker_id, 1, 60],
+        )
+    data = json.loads(rows[0]["rows_json"])
+    return [
+        _HonkerJob(
+            id=int(row["id"]),
+            worker_id=row["worker_id"],
+            attempts=int(row["attempts"]),
+            claim_expires_at=int(row["claim_expires_at"]),
+            payload=json.loads(row["payload"]),
+        )
+        for row in data
+    ]
 
 
 async def test_python_open_migrates_v1_database_to_delivery_rows(db_path):
@@ -172,7 +201,7 @@ async def test_prune_events_removes_old_terminal_events_and_linked_rows(db_path)
         app.get_event(second_id)
     assert app.get_event(third_id).status == "handled"
     assert [delivery.event_id for delivery in app.list_deliveries()] == [third_id]
-    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert live_rows[0]["c"] == 1
 
 async def test_prune_events_uses_strict_received_at_cutoff_and_oldest_first_limit(db_path):
@@ -388,7 +417,7 @@ async def test_prune_events_leaves_malformed_live_job_payloads_alone(db_path):
         tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, event_id])
         tx.query(
             "SELECT honker_enqueue(?, ?, ?, ?, ?, ?, ?) AS job_id",
-            [app.queue.name, "not-json", None, None, 0, 1, None],
+            [app.queue_name, "not-json", None, None, 0, 1, None],
         )
 
     prune = app.prune_events(statuses=["handled"], older_than=200, limit=10)
@@ -396,7 +425,7 @@ async def test_prune_events_leaves_malformed_live_job_payloads_alone(db_path):
     assert prune.live_jobs_pruned == 1
     malformed_rows = app.db.query(
         "SELECT COUNT(*) AS c FROM _honker_live WHERE queue=? AND payload='not-json'",
-        [app.queue.name],
+        [app.queue_name],
     )
     assert malformed_rows[0]["c"] == 1
 
@@ -415,7 +444,7 @@ async def test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job
         tx.query("SELECT knocker_mark_handled(?, ?)", [event_id, 0])
         tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, event_id])
 
-    jobs = app.queue.claim_batch("worker-prune", 1)
+    jobs = _claim_one_for_test(app, "worker-prune")
     assert len(jobs) == 1
 
     prune = app.prune_events(statuses=["handled"], older_than=200, limit=10)
@@ -424,7 +453,7 @@ async def test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job
 
     await app._dispatch_job(jobs[0])
 
-    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert live_rows[0]["c"] == 0
 
 async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypatch):
@@ -456,7 +485,7 @@ async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypa
 
     assert app.get_event(event_id).status == "handled"
     assert app.get_delivery(result.delivery_id).event_id == event_id
-    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert live_rows[0]["c"] == 1
 
 async def test_prune_events_keeps_other_event_deliveries_intact(db_path):

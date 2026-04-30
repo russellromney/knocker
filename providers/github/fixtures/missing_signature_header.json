@@ -1,0 +1,19 @@
+{
+  "description": "Missing X-Hub-Signature-256 should reject; X-GitHub-Delivery and X-GitHub-Event still surface so the orphan delivery is debuggable.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-GitHub-Delivery": "delivery-1",
+      "X-GitHub-Event": "ping"
+    },
+    "query": {},
+    "body": "{}",
+    "secrets": ["github-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing signature header: x-hub-signature-256",
+    "provider_delivery_id": "delivery-1",
+    "event_type": "ping"
+  }
+}

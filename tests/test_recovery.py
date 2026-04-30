@@ -115,7 +115,7 @@ async def test_replay_rejects_received_event_with_existing_live_job(db_path):
     with pytest.raises(ValueError, match="cannot be replayed"):
         app.replay(event_id)
 
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 1
 
 async def test_requeue_failed_event_replaces_existing_live_job_not_duplicates(db_path):
@@ -133,12 +133,12 @@ async def test_requeue_failed_event_replaces_existing_live_job_not_duplicates(db
     with app.db.transaction() as tx:
         tx.query("SELECT knocker_mark_failed(?, ?, ?, ?, ?)", [event_id, 1, "boom", 0, 0])
 
-    before = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    before = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert before[0]["c"] == 1
 
     app.requeue(event_id)
 
-    after = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    after = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert after[0]["c"] == 1
     assert app.get_event(event_id).status == "received"
 
@@ -184,7 +184,7 @@ async def test_dead_redelivery_is_audit_only_until_explicit_requeue(db_path):
 
     await asyncio.sleep(0.2)
     deliveries = app.list_deliveries(event_id=event_id)
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert second.event_id == event_id
     assert second.duplicate is True
     assert app.get_event(event_id).status == "dead"
@@ -207,7 +207,7 @@ async def test_dead_redelivery_is_audit_only_until_explicit_requeue(db_path):
     stop.set()
     await asyncio.wait_for(worker, timeout=3.0)
 
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert app.get_event(event_id).status == "handled"
     assert seen == [event_id, event_id]
     assert rows[0]["c"] == 0
@@ -383,5 +383,5 @@ async def test_replay_delivery_during_active_worker_processes_synthetic_job(db_p
     # Canonical event payload is unchanged.
     assert app.get_event(event_id).body == b'{"id":"evt-active-replay","n":1}'
     assert app.get_event(event_id).provider_delivery_id == "delivery-1"
-    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue.name])
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 0

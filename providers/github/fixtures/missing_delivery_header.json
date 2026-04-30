@@ -1,0 +1,18 @@
+{
+  "description": "Missing X-GitHub-Delivery rejects with the delivery-header error before signature math; dedupe identity must be present for GitHub deliveries.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature-256": "sha256=00000000000000000000000000000000",
+      "X-GitHub-Event": "push"
+    },
+    "query": {},
+    "body": "{}",
+    "secrets": ["github-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing delivery header: x-github-delivery",
+    "event_type": "push"
+  }
+}

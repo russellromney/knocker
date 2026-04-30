@@ -1,0 +1,20 @@
+{
+  "description": "GitHub signature computed with the wrong secret should reject; extracted delivery id and event type still surface on the orphan delivery.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature-256": "sha256=eb638072fef9e35778d4aecb7dfc6185893130d702e514420971bf0113f2476e",
+      "X-GitHub-Delivery": "delivery-xyz",
+      "X-GitHub-Event": "push"
+    },
+    "query": {},
+    "body": "{\"zen\":\"keep it logically awesome\"}",
+    "secrets": ["github-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "github signature mismatch",
+    "provider_delivery_id": "delivery-xyz",
+    "event_type": "push"
+  }
+}

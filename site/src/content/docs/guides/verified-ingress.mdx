@@ -11,19 +11,30 @@ Knocker exposes provider verification through a small public interface
 (`Provider`, `ProviderRequest`, `ProviderResult`) plus a per-`Knocker`
 registry. There are three support tiers:
 
-- **Built-in curated providers** ship inside `knockerlite`, are auto-registered,
-  and Knocker tests them with valid, invalid, missing-header, and rotation /
-  timestamp cases where applicable. Today: `stripe` and `github`.
-- **App-local providers** live in your own code. You register them on a single
-  `Knocker` instance with `app.register_provider(provider)`. There is no
-  process-wide provider state.
-- **Community providers** are ordinary Python packages that expose a `Provider`
-  object you register the same way. Knocker does not auto-discover or load
-  them.
+- **Curated built-in providers** ship inside `knockerlite`, are auto-registered,
+  and have repo-owned conformance fixtures under `providers/<name>/`.
+  Today: `stripe` and `github`. The string `provider="..."` namespace is
+  reserved for these names.
+- **App-local providers** live in your own code. Pass a `Provider` instance
+  directly to `add_endpoint(provider=AcmeProvider(), ...)` — no global
+  registration needed.
+- **Community providers** are ordinary Python packages that expose a
+  `Provider` value (often via a small `provider()` factory). Host apps
+  pass that value to `add_endpoint(...)` the same way as app-local
+  providers. Knocker does not auto-discover or load them.
 
-Built-in provider names (`stripe`, `github`) cannot be overridden through
-`register_provider(...)`. If you need a hotfix, register an app-local
-provider under a distinct name and point endpoints at that name.
+String provider names (`provider="..."`) are reserved for curated
+built-ins. App-local and community providers always pass a `Provider`
+instance to `add_endpoint(...)`; an instance whose `.name` collides with
+a curated name is rejected. There is no global string registry for
+non-curated providers, so a future curated addition cannot collide with
+your custom provider.
+
+If you need a hotfix for a curated built-in, write a distinctly-named
+`Provider` subclass and point your endpoint at the instance.
+
+Curating a new provider goes through the
+[Curated provider contribution guide](/guides/contributing-providers/).
 
 ## Built-in: Stripe
 
@@ -72,8 +83,9 @@ the stored event instead.
 
 ## App-local providers
 
-Implement the small `Provider` interface and register your instance on the
-`Knocker` you already have:
+Implement the small `Provider` interface and pass your instance directly to
+`add_endpoint(...)`. Curated string names like `"stripe"` and `"github"` are
+reserved for built-ins; non-curated providers should pass an instance.
 
 ```python
 import hmac
@@ -104,14 +116,33 @@ class AcmeProvider(knocker.Provider):
 
 
 app = knocker.open("knocker.db")
-app.register_provider(AcmeProvider())
 app.add_endpoint(
     name="acme",
     path="/webhooks/acme",
-    provider="acme",
+    provider=AcmeProvider(),
     secrets=["acme-secret"],
 )
 ```
+
+Community providers ship as ordinary host-language packages that expose a
+`Provider` value. Host apps register them at `add_endpoint(...)` time:
+
+```python
+import knocker
+import acme_webhooks  # third-party community package
+
+app.add_endpoint(
+    name="acme",
+    path="/webhooks/acme",
+    provider=acme_webhooks.provider(),
+    secrets=["acme-secret"],
+)
+```
+
+Providers passed as instances are scoped to that endpoint. They do not
+appear in `provider_versions()`, which only reflects the curated
+built-ins. There is no global string-lookup registry for non-curated
+providers in Knocker; the instance path is the only path.
 
 `Provider.verify(...)` returns a `ProviderResult` that combines the
 verification outcome and the metadata the provider could extract.

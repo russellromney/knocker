@@ -1,0 +1,19 @@
+{
+  "description": "Stripe signature computed with the wrong secret should reject as mismatch and still surface extracted body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Stripe-Signature": "t=1714000000,v1=ca314b1de461230c0fe97a76ab94458249d5148447765df31434db164c019ab8"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_1\",\"type\":\"checkout.session.completed\"}",
+    "secrets": ["whsec_test"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "stripe signature mismatch",
+    "provider_event_id": "evt_1",
+    "event_type": "checkout.session.completed"
+  }
+}

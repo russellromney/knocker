@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-import time
 from types import MappingProxyType
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -167,137 +164,17 @@ class Provider:
             )
 
 
-class _StripeProvider(Provider):
-    """Built-in Stripe webhook provider.
-
-    Verifies the ``Stripe-Signature`` header with optional secret rotation
-    and a configurable timestamp tolerance. Extracts the upstream event id
-    and event type from the JSON body when present.
-    """
-
-    name = "stripe"
-    version = "1.0.0"
-    option_keys = frozenset({"tolerance_s"})
-    requires_secrets = True
-
-    def validate_options(self, options: dict[str, Any]) -> None:
-        super().validate_options(options)
-        if "tolerance_s" in options:
-            value = options["tolerance_s"]
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise TypeError(
-                    "stripe provider option 'tolerance_s' must be an integer"
-                )
-            if value < 0:
-                raise ValueError(
-                    "stripe provider option 'tolerance_s' must be non-negative"
-                )
-
-    def verify(
-        self,
-        request: ProviderRequest,
-        *,
-        secrets: tuple[bytes, ...],
-        options: dict[str, Any],
-    ) -> ProviderResult:
-        tolerance_s = int(options.get("tolerance_s", 300))
-        provider_event_id = _json_string_field(request.body, "id")
-        event_type = _json_string_field(request.body, "type")
-        header_value = request.header("stripe-signature")
-        if header_value is None:
-            return ProviderResult.reject(
-                "missing signature header: stripe-signature",
-                provider_event_id=provider_event_id,
-                event_type=event_type,
-            )
-        try:
-            timestamp, signatures = _parse_stripe_signature(header_value)
-        except ValueError as exc:
-            return ProviderResult.reject(
-                str(exc),
-                provider_event_id=provider_event_id,
-                event_type=event_type,
-            )
-        if abs(int(time.time()) - timestamp) > tolerance_s:
-            return ProviderResult.reject(
-                "stripe signature timestamp outside tolerance",
-                provider_event_id=provider_event_id,
-                event_type=event_type,
-            )
-        signed_payload = f"{timestamp}.".encode("utf-8") + request.body
-        for secret in secrets:
-            expected = hmac.new(secret, signed_payload, hashlib.sha256).hexdigest()
-            for candidate in signatures:
-                if hmac.compare_digest(candidate, expected):
-                    return ProviderResult.accept(
-                        provider_event_id=provider_event_id,
-                        event_type=event_type,
-                    )
-        return ProviderResult.reject(
-            "stripe signature mismatch",
-            provider_event_id=provider_event_id,
-            event_type=event_type,
-        )
-
-
-class _GitHubProvider(Provider):
-    """Built-in GitHub webhook provider.
-
-    Verifies the ``X-Hub-Signature-256`` header as ``sha256=<hex hmac>`` over
-    the raw body. Extracts ``X-GitHub-Delivery`` and ``X-GitHub-Event`` and
-    uses the delivery id as Knocker's dedupe identity, which is stable across
-    operator-initiated redeliveries from the GitHub dashboard.
-    """
-
-    name = "github"
-    version = "1.0.0"
-    option_keys = frozenset()
-    requires_secrets = True
-
-    def verify(
-        self,
-        request: ProviderRequest,
-        *,
-        secrets: tuple[bytes, ...],
-        options: dict[str, Any],
-    ) -> ProviderResult:
-        delivery_id = request.header("x-github-delivery")
-        event_type = request.header("x-github-event")
-        if not delivery_id:
-            return ProviderResult.reject(
-                "missing delivery header: x-github-delivery",
-                event_type=event_type,
-            )
-        signature = request.header("x-hub-signature-256")
-        if signature is None:
-            return ProviderResult.reject(
-                "missing signature header: x-hub-signature-256",
-                provider_delivery_id=delivery_id,
-                event_type=event_type,
-            )
-        if not signature.startswith("sha256="):
-            return ProviderResult.reject(
-                "github signature must use 'sha256=<hex>' format",
-                provider_delivery_id=delivery_id,
-                event_type=event_type,
-            )
-        for secret in secrets:
-            digest = hmac.new(secret, request.body, hashlib.sha256).hexdigest()
-            expected = f"sha256={digest}"
-            if hmac.compare_digest(signature, expected):
-                return ProviderResult.accept(
-                    provider_delivery_id=delivery_id,
-                    event_type=event_type,
-                )
-        return ProviderResult.reject(
-            "github signature mismatch",
-            provider_delivery_id=delivery_id,
-            event_type=event_type,
-        )
-
-
 def _builtin_providers() -> tuple[Provider, ...]:
-    """Return fresh built-in provider instances per ``Knocker`` instance."""
+    """Return fresh built-in provider instances per ``Knocker`` instance.
+
+    Imports happen here to keep the public providers module free of
+    built-in implementation detail. Built-in modules (``_builtin_stripe``,
+    ``_builtin_github``) live as siblings of this file and may be imported
+    directly by repo-internal conformance tooling.
+    """
+
+    from knocker._builtin_stripe import _StripeProvider
+    from knocker._builtin_github import _GitHubProvider
 
     return (_StripeProvider(), _GitHubProvider())
 

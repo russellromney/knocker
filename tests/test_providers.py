@@ -39,102 +39,23 @@ async def test_provider_versions_returns_fresh_copy(db_path):
     assert "mutated" not in second
 
 
-async def test_register_provider_exposes_app_local_provider(db_path):
+async def test_register_provider_method_is_no_longer_present(db_path):
+    """Phase 008: string-based custom-provider lookup is retired. Curated
+    string names are reserved for built-ins; app-local and community
+    providers use the instance path on ``add_endpoint(...)`` instead."""
+
     app = knocker.open(db_path)
+    assert not hasattr(app, "register_provider")
 
-    class _AcmeProvider(knocker.Provider):
-        name = "acme"
-        version = "0.2.0"
-        option_keys = frozenset()
-        requires_secrets = True
 
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept(provider_delivery_id="acme-1")
+async def test_provider_versions_only_lists_curated_builtins(db_path):
+    """``provider_versions()`` reflects only curated built-ins. There is no
+    additive registry; instance-path providers are per-endpoint and do not
+    appear here."""
 
-    app.register_provider(_AcmeProvider())
-
+    app = knocker.open(db_path)
     versions = app.provider_versions()
-    assert versions["acme"] == "0.2.0"
-
-
-async def test_register_provider_rejects_duplicate_names(db_path):
-    app = knocker.open(db_path)
-
-    class _AcmeProvider(knocker.Provider):
-        name = "acme"
-        version = "0.1.0"
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    app.register_provider(_AcmeProvider())
-    with pytest.raises(ValueError, match="already registered"):
-        app.register_provider(_AcmeProvider())
-
-
-async def test_register_provider_rejects_overriding_builtins(db_path):
-    app = knocker.open(db_path)
-
-    class _ShadowStripe(knocker.Provider):
-        name = "stripe"
-        version = "9.9.9"
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    with pytest.raises(ValueError, match="cannot override built-in provider"):
-        app.register_provider(_ShadowStripe())
-
-
-async def test_register_provider_validates_name_and_version(db_path):
-    app = knocker.open(db_path)
-
-    class _NoName(knocker.Provider):
-        name = ""
-        version = "1.0.0"
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    with pytest.raises(ValueError, match="provider name"):
-        app.register_provider(_NoName())
-
-    class _UpperName(knocker.Provider):
-        name = "Acme"
-        version = "1.0.0"
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    with pytest.raises(ValueError, match="lowercase"):
-        app.register_provider(_UpperName())
-
-    class _NoVersion(knocker.Provider):
-        name = "acme"
-        version = ""
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    with pytest.raises(ValueError, match="provider version"):
-        app.register_provider(_NoVersion())
-
-    class _BadVersion(knocker.Provider):
-        name = "acme"
-        version = "v1"
-
-        def verify(self, request, *, secrets, options):
-            return knocker.ProviderResult.accept()
-
-    with pytest.raises(ValueError, match="semantic version"):
-        app.register_provider(_BadVersion())
-
-
-async def test_register_provider_requires_provider_instance(db_path):
-    app = knocker.open(db_path)
-
-    with pytest.raises(TypeError, match="Provider instance"):
-        app.register_provider(object())
+    assert set(versions.keys()) == {"stripe", "github"}
 
 
 async def test_add_endpoint_rejects_unknown_provider_name(db_path):
@@ -298,11 +219,10 @@ async def test_provider_unexpected_exception_creates_orphan_delivery(db_path):
         def verify(self, request, *, secrets, options):
             raise RuntimeError("boom in provider")
 
-    app.register_provider(_BrokenProvider())
     app.add_endpoint(
         name="broken",
         path="/webhooks/broken",
-        provider="broken",
+        provider=_BrokenProvider(),
         secrets=["s"],
     )
 
@@ -326,11 +246,10 @@ async def test_provider_returning_non_provider_result_creates_orphan_delivery(db
         def verify(self, request, *, secrets, options):
             return {"valid": True}
 
-    app.register_provider(_BadShapeProvider())
     app.add_endpoint(
         name="badshape",
         path="/webhooks/badshape",
-        provider="badshape",
+        provider=_BadShapeProvider(),
         secrets=["s"],
     )
 
@@ -370,11 +289,10 @@ async def test_app_local_provider_accepts_and_extracts_metadata(db_path):
                 event_type=event_type,
             )
 
-    app.register_provider(_AcmeProvider())
     app.add_endpoint(
         name="acme",
         path="/webhooks/acme",
-        provider="acme",
+        provider=_AcmeProvider(),
         secrets=["acme-secret"],
     )
 
@@ -413,11 +331,10 @@ async def test_app_local_provider_invalid_orphan_keeps_extracted_metadata(db_pat
                 event_type=event_type,
             )
 
-    app.register_provider(_AcmeProvider())
     app.add_endpoint(
         name="acme",
         path="/webhooks/acme",
-        provider="acme",
+        provider=_AcmeProvider(),
         secrets=["s"],
     )
 
@@ -450,11 +367,10 @@ async def test_provider_cannot_mutate_stored_raw_receipt(db_path):
                 request.query["page"] = "2"
             return knocker.ProviderResult.accept()
 
-    app.register_provider(_AcmeProvider())
     app.add_endpoint(
         name="acme",
         path="/webhooks/acme",
-        provider="acme",
+        provider=_AcmeProvider(),
         secrets=["s"],
     )
 
@@ -863,7 +779,6 @@ def test_public_provider_classes_have_docstrings():
         knocker.Provider.verify,
         knocker.ProviderRequest.header,
         knocker.ProviderRequest.json,
-        knocker.Knocker.register_provider,
         knocker.Knocker.provider_versions,
     ):
         doc = (obj.__doc__ or "").strip()

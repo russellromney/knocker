@@ -1,0 +1,20 @@
+{
+  "description": "Valid signature whose timestamp is outside the configured tolerance window should reject with the tolerance error and still surface body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Stripe-Signature": "t=1714000000,v1=89a4b241f2e40939e86f24dd8c249a1ecec18d639cce9ba06336538f693bf414"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_1\",\"type\":\"checkout.session.completed\"}",
+    "secrets": ["whsec_test"],
+    "provider_options": {"tolerance_s": 300},
+    "now_s": 1714000600
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "outside tolerance",
+    "provider_event_id": "evt_1",
+    "event_type": "checkout.session.completed"
+  }
+}

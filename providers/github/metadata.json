@@ -1,0 +1,7 @@
+{
+  "name": "github",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "GitHub webhook signature verification using X-Hub-Signature-256 (sha256=<hex hmac> over the raw body). Extracts X-GitHub-Delivery as the dedupe identity (stable across operator-initiated redeliveries) and X-GitHub-Event as the event type.",
+  "upstream_docs_url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries"
+}

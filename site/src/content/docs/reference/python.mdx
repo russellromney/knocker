@@ -35,14 +35,18 @@ def handle_checkout(event, tx):
     ...
 ```
 
-`provider="name"` resolves through the per-`Knocker` provider registry.
-Built-in names (`stripe`, `github`) are registered automatically. Unknown
-names raise `ValueError` at `add_endpoint(...)` time. Built-in providers
-that require secrets reject missing/`None`/empty `secrets=...` at
-registration time. `provider_options` is schema-checked; unknown keys
-raise `ValueError`.
+`provider` accepts either a curated string name (`"stripe"`, `"github"`)
+or a `knocker.Provider` instance for app-local / community providers.
+Curated string names are reserved for built-ins; non-curated providers
+should pass an instance. Unknown string names raise `ValueError` at
+`add_endpoint(...)` time. Providers that require secrets reject
+missing/`None`/empty `secrets=...` at registration time.
+`provider_options` is schema-checked; unknown keys raise `ValueError`.
 
-## Provider registry
+## Provider registry and instance path
+
+App-local and community providers should pass a `Provider` instance
+directly to `add_endpoint(...)`:
 
 ```python
 import knocker
@@ -60,20 +64,40 @@ class AcmeProvider(knocker.Provider):
         )
 
 
-app.register_provider(AcmeProvider())
+app.add_endpoint(
+    name="acme",
+    path="/webhooks/acme",
+    provider=AcmeProvider(),
+    secrets=["acme-secret"],
+)
+
 versions = app.provider_versions()
-# {"stripe": "1.0.0", "github": "1.0.0", "acme": "1.0.0"}
+# {"stripe": "1.0.0", "github": "1.0.0"}
 ```
 
-Built-in providers cannot be overridden through `register_provider(...)`.
-Duplicate registrations fail rather than silently replacing.
-`provider_versions()` returns a fresh `dict[str, str]` snapshot of
-implementation SemVer strings.
+`provider_versions()` returns a fresh `dict[str, str]` snapshot of the
+curated built-ins (`stripe`, `github`). Instance-path providers are
+scoped to one endpoint and do not appear here; there is no global
+string-lookup registry for non-curated providers.
 
-`Provider.verify(...)` returns a `ProviderResult` that combines
-verification outcome and extracted metadata. Unexpected provider
-exceptions are turned into rejected results with a useful
-`signature_error`; the caller is never crashed by a buggy provider.
+String `provider="..."` names are reserved for curated built-ins. An
+instance whose `.name` collides with a curated name is rejected at
+`add_endpoint(...)` time. `Provider.verify(...)` returns a
+`ProviderResult` combining verification outcome and extracted metadata;
+unexpected exceptions become rejected results with a useful
+`signature_error` rather than crashing the caller.
+
+For curated provider authoring, see
+[Contributing a curated provider](/guides/contributing-providers/).
+
+## Queue inspection
+
+```python
+app.queue_name  # "knocker.events"
+```
+
+`queue_name` is a read-only string property exposing the configured
+Honker queue name. The underlying queue object is internal.
 
 Handlers receive `(event, tx)`. Business writes through `tx` commit atomically with Knocker's event transition and queue ack. Handlers are synchronous; keep them short and DB-local.
 

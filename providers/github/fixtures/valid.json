@@ -1,0 +1,19 @@
+{
+  "description": "Valid GitHub X-Hub-Signature-256 should accept; extracts X-GitHub-Delivery as the dedupe identity and X-GitHub-Event as the event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature-256": "sha256=2467a1987473c6ee89a22fe24f010dca30cb93d575240b9689ab697bed4b6eab",
+      "X-GitHub-Delivery": "delivery-abc",
+      "X-GitHub-Event": "push"
+    },
+    "query": {},
+    "body": "{\"zen\":\"keep it logically awesome\"}",
+    "secrets": ["github-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_delivery_id": "delivery-abc",
+    "event_type": "push"
+  }
+}
