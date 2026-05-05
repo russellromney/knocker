@@ -8,7 +8,7 @@ Knocker's durable semantics live in shared Rust/SQLite code. The repo ships bind
 
 Knocker is for apps that already have an HTTP server, a SQLite database, and local business logic. It is not a hosted webhook relay, not a broker, and not a framework adapter package.
 
-Published Python package name: `knockerlite`. Python import name: `knocker`.
+Current install surfaces live in this repo. The Python package is published as `knockerlite` and imported as `knocker`; the other bindings are present as repo packages over the same SQLite extension contract.
 
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
 
@@ -18,7 +18,7 @@ Docs live at [knocker.dev](https://knocker.dev).
 
 ## At a glance
 
-Python quickstart:
+Quickstart with the Python package:
 
 ```bash
 pip install knockerlite
