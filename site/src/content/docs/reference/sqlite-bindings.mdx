@@ -6,15 +6,25 @@ description: Node, Bun, Ruby, Go, and Elixir bindings over Knocker's shared SQLi
 Knocker is a loadable SQLite extension plus language bindings. The bindings
 on this page talk to the same shared SQLite contract as the Python package.
 
-Every binding in this page proves the same baseline:
+Every binding in this page proves the same shared SQLite-contract baseline:
 
 - open/bootstrap
 - endpoint registration
-- ingest
-- endpoint handler registration plus one worker-processing path
+- trusted ingest
+- provider-verified `receive(...)` for curated providers through the shared SQLite extension
+- endpoint and event-type-specific handler registration, with endpoint fallback
+- one-shot and long-running worker-processing paths
+- handler access to the same SQLite transaction used for Knocker's event transition and queue acknowledgement
+- handler-failure rollback before retry/dead-letter bookkeeping
 - `get_event`
 - `list_events`
+- delivery reads
 - `replay`
+- `requeue`
+- `ignore`
+- `replay_delivery`
+- retention pass/loop helpers
+- prune/audit reads
 
 These bindings load the Knocker SQLite extension directly. They do not wrap
 separate Honker language packages; queue operations go through the shared
@@ -32,27 +42,28 @@ db.addEndpoint({
   name: "github",
   path: "/webhooks/github",
   provider: "github",
+  secrets: ["github-secret"],
 });
 
-db.ingest({
+const result = db.receive({
   endpoint: "github",
-  body: Buffer.from('{"hello":"world"}'),
-  providerDeliveryId: "bun-delivery-1",
-  signatureValid: true,
+  body: Buffer.from('{"zen":"keep it logically awesome"}'),
+  headers: {
+    "X-Hub-Signature-256": "sha256=...",
+    "X-GitHub-Delivery": "delivery-1",
+    "X-GitHub-Event": "push",
+  },
 });
 
-const result = db.ingest({
-  endpoint: "github",
-  body: Buffer.from('{"hello":"world"}'),
-  providerDeliveryId: "node-delivery-1",
-  signatureValid: true,
-});
-
-db.registerHandler("github", (event) => {
+db.registerHandler("github", (event, tx) => {
+  // Assume this app-owned table already exists.
+  tx.prepare("INSERT INTO handled_events (event_id) VALUES (?)").run(event.id);
   console.log("handled", event.id);
 });
 
-db.runWorkerOnce("node-worker");
+await db.runWorker({ workerId: "node-worker", maxJobs: 1 });
+db.replay(result.event_id);
+db.ignore(result.event_id);
 ```
 
 ## Bun
@@ -67,13 +78,28 @@ db.addEndpoint({
   name: "github",
   path: "/webhooks/github",
   provider: "github",
+  secrets: ["github-secret"],
 });
 
-db.registerHandler("github", (event) => {
+const result = db.receive({
+  endpoint: "github",
+  body: Buffer.from('{"zen":"keep it logically awesome"}'),
+  headers: {
+    "X-Hub-Signature-256": "sha256=...",
+    "X-GitHub-Delivery": "delivery-1",
+    "X-GitHub-Event": "push",
+  },
+});
+
+db.registerHandler("github", (event, tx) => {
+  // Assume this app-owned table already exists.
+  tx.exec(`INSERT INTO handled_events (event_id) VALUES (${Number(event.id)})`);
   console.log("handled", event.id);
 });
 
-db.runWorkerOnce("bun-worker");
+await db.runWorker({ workerId: "bun-worker", maxJobs: 1 });
+db.replay(result.event_id);
+db.ignore(result.event_id);
 ```
 
 ## Ruby
@@ -89,20 +115,28 @@ db.add_endpoint(
   path: "/webhooks/github",
   provider: "github",
   enabled: true,
+  secrets: ["github-secret"],
 )
 
-db.ingest(
+result = db.receive(
   endpoint: "github",
-  body: "{\"hello\":\"world\"}",
-  provider_delivery_id: "ruby-delivery-1",
-  signature_valid: true,
+  body: "{\"zen\":\"keep it logically awesome\"}",
+  headers: {
+    "X-Hub-Signature-256" => "sha256=...",
+    "X-GitHub-Delivery" => "delivery-1",
+    "X-GitHub-Event" => "push",
+  },
 )
 
-db.register_handler("github") do |event|
+db.register_handler("github") do |event, tx|
+  # Assume this app-owned table already exists.
+  tx.exec("INSERT INTO handled_events (event_id) VALUES (#{event['id']})")
   puts "handled #{event['id']}"
 end
 
-db.run_worker_once(worker_id: "ruby-worker")
+db.run_worker(worker_id: "ruby-worker", max_jobs: 1)
+db.replay(result["event_id"])
+db.ignore(result["event_id"])
 ```
 
 ## Go
@@ -122,22 +156,31 @@ _, err = webhooks.AddEndpoint(knockersqlite.AddEndpointParams{
     Path:     "/webhooks/github",
     Provider: &provider,
     Enabled:  true,
+    Secrets:  []string{"github-secret"},
 })
 
-webhooks.RegisterHandler("github", func(event knockersqlite.Event) error {
+webhooks.RegisterHandler("github", func(event knockersqlite.Event, tx *knockersqlite.Tx) error {
+    // Assume this app-owned table already exists.
+    _, err := tx.Exec("INSERT INTO handled_events (event_id) VALUES (?)", event.ID)
+    if err != nil {
+        return err
+    }
     return nil
 })
 
-deliveryID := "go-delivery-1"
-signatureValid := true
-_, err = webhooks.Ingest(knockersqlite.IngestParams{
-    Endpoint:           "github",
-    Body:               []byte(`{"hello":"world"}`),
-    ProviderDeliveryID: &deliveryID,
-    SignatureValid:     &signatureValid,
+result, err := webhooks.Receive(knockersqlite.ReceiveParams{
+    Endpoint: "github",
+    Body:     []byte(`{"zen":"keep it logically awesome"}`),
+    Headers: map[string]any{
+        "X-Hub-Signature-256": "sha256=...",
+        "X-GitHub-Delivery":   "delivery-1",
+        "X-GitHub-Event":      "push",
+    },
 })
 
-_, err = webhooks.RunWorkerOnce("go-worker")
+_, err = webhooks.RunWorker(context.Background(), "go-worker", 1)
+_ = webhooks.Replay(*result.EventID)
+_ = webhooks.Ignore(*result.EventID)
 ```
 
 ## Elixir
@@ -148,7 +191,9 @@ Source: `packages/knocker-elixir`
 {:ok, opened} = KnockerSqlite.open("app.db")
 
 webhooks =
-  KnockerSqlite.register_handler(opened, "github", fn event ->
+  KnockerSqlite.register_handler(opened, "github", fn event, tx ->
+    # Assume this app-owned table already exists.
+    :ok = KnockerSqlite.Tx.exec(tx, "INSERT INTO handled_events (event_id) VALUES (#{event["id"]})")
     IO.inspect(event["id"], label: "handled")
   end)
 
@@ -160,15 +205,22 @@ webhooks =
     enabled: true
   })
 
-{:ok, _result} =
-  KnockerSqlite.ingest(webhooks, %{
+{:ok, result} =
+  KnockerSqlite.receive(webhooks, %{
     endpoint: "github",
-    body: ~s({"hello":"world"}),
-    provider_delivery_id: "elixir-delivery-1",
-    signature_valid: true
+    provider: "github",
+    secrets: ["github-secret"],
+    body: ~s({"zen":"keep it logically awesome"}),
+    headers: %{
+      "X-Hub-Signature-256" => "sha256=...",
+      "X-GitHub-Delivery" => "delivery-1",
+      "X-GitHub-Event" => "push"
+    }
   })
 
-{:ok, _event_id} = KnockerSqlite.run_worker_once(webhooks, "elixir-worker")
+1 = KnockerSqlite.run_worker(webhooks, "elixir-worker", %{max_jobs: 1})
+{:ok, _} = KnockerSqlite.replay(webhooks, result["event_id"])
+{:ok, :ignored} = KnockerSqlite.ignore(webhooks, result["event_id"])
 ```
 
 ## Testing

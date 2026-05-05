@@ -738,11 +738,9 @@ mod tests {
 
         let processing = conn.query_row(calls[0], params![404i64, 1i64], |_| Ok(()));
         let handled = conn.query_row(calls[1], params![404i64, 10i64], |_| Ok(()));
-        let failed = conn.query_row(
-            calls[2],
-            params![404i64, 1i64, "boom", 1i64, 10i64],
-            |_| Ok(()),
-        );
+        let failed = conn.query_row(calls[2], params![404i64, 1i64, "boom", 1i64, 10i64], |_| {
+            Ok(())
+        });
         let ignored = conn.query_row(calls[3], params![404i64, 10i64], |_| Ok(()));
 
         assert!(processing.is_err());
@@ -751,7 +749,9 @@ mod tests {
         assert!(ignored.is_err());
 
         let attempt_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM knocker_attempts", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM knocker_attempts", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(attempt_count, 0);
     }
@@ -994,12 +994,8 @@ mod tests {
         )
         .unwrap();
 
-        conn.query_row(
-            "SELECT knocker_reset_event(?1)",
-            params![1i64],
-            |_| Ok(()),
-        )
-        .unwrap();
+        conn.query_row("SELECT knocker_reset_event(?1)", params![1i64], |_| Ok(()))
+            .unwrap();
 
         let state: (String, i64, Option<String>, Option<i64>) = conn
             .query_row(
@@ -1048,24 +1044,208 @@ mod tests {
         .unwrap();
 
         let before: i64 = conn
-            .query_row("SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(before, 1);
 
-        conn.query_row(
-            "SELECT knocker_reset_event(?1)",
-            params![1i64],
-            |_| Ok(()),
-        )
-        .unwrap();
+        conn.query_row("SELECT knocker_reset_event(?1)", params![1i64], |_| Ok(()))
+            .unwrap();
 
         let after: i64 = conn
-            .query_row("SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(after, 1);
+    }
+
+    #[test]
+    fn receive_verifies_github_and_records_invalid_signature_as_orphan_delivery() {
+        let conn = open_test_conn();
+        bootstrap_knocker_schema(&conn).unwrap();
+        insert_endpoint(&conn, "github", "/webhooks/github", "github");
+
+        let body = br#"{"zen":"keep it logically awesome"}"#.to_vec();
+        let result_json: String = conn
+            .query_row(
+                "SELECT knocker_receive(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![
+                    "github",
+                    "github",
+                    "[\"github-secret\"]",
+                    "{}",
+                    "POST",
+                    "{\"X-Hub-Signature-256\":\"sha256=2467a1987473c6ee89a22fe24f010dca30cb93d575240b9689ab697bed4b6eab\",\"X-GitHub-Delivery\":\"delivery-abc\",\"X-GitHub-Event\":\"push\"}",
+                    body.clone(),
+                    "{}",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    "knocker.events",
+                    3,
+                ],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_str(&result_json).unwrap();
+        assert_eq!(result["status_code"], 204);
+
+        let event: (String, String) = conn
+            .query_row(
+                "SELECT provider_delivery_id, event_type FROM knocker_events WHERE id=?1",
+                params![result["event_id"].as_i64().unwrap()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(event.0, "delivery-abc");
+        assert_eq!(event.1, "push");
+
+        let rejected_json: String = conn
+            .query_row(
+                "SELECT knocker_receive(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![
+                    "github",
+                    "github",
+                    "[\"github-secret\"]",
+                    "{}",
+                    "POST",
+                    "{\"X-Hub-Signature-256\":\"sha256=bad\",\"X-GitHub-Delivery\":\"delivery-bad\",\"X-GitHub-Event\":\"push\"}",
+                    body,
+                    "{}",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    "knocker.events",
+                    3,
+                ],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let rejected: serde_json::Value = serde_json::from_str(&rejected_json).unwrap();
+        assert_eq!(rejected["status_code"], 401);
+        assert!(rejected["event_id"].is_null());
+
+        let orphan: (Option<i64>, i64) = conn
+            .query_row(
+                "SELECT event_id, signature_valid FROM knocker_deliveries WHERE id=?1",
+                params![rejected["delivery_id"].as_i64().unwrap()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(orphan.0, None);
+        assert_eq!(orphan.1, 0);
+    }
+
+    #[test]
+    fn receive_valid_fixtures_cover_every_curated_provider() {
+        let providers = [
+            "github",
+            "stripe",
+            "shopify",
+            "slack",
+            "postmark",
+            "resend",
+            "paddle",
+            "lemon-squeezy",
+        ];
+
+        for provider in providers {
+            let conn = open_test_conn();
+            bootstrap_knocker_schema(&conn).unwrap();
+            insert_endpoint(&conn, provider, &format!("/webhooks/{provider}"), provider);
+
+            let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join("providers")
+                .join(provider)
+                .join("fixtures")
+                .join("valid.json");
+            let fixture_text = std::fs::read_to_string(&fixture_path)
+                .unwrap_or_else(|err| panic!("read {fixture_path:?}: {err}"));
+            let fixture: serde_json::Value = serde_json::from_str(&fixture_text).unwrap();
+            let request = &fixture["request"];
+            let expected = &fixture["expected"];
+            let mut options = request
+                .get("provider_options")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            if request.get("now_s").is_some() {
+                options["tolerance_s"] = serde_json::json!(10_000_000_000i64);
+            }
+
+            let result_json: String = conn
+                .query_row(
+                    "SELECT knocker_receive(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                    params![
+                        provider,
+                        provider,
+                        serde_json::to_string(&request["secrets"]).unwrap(),
+                        options.to_string(),
+                        request["method"].as_str().unwrap_or("POST"),
+                        serde_json::to_string(&request["headers"]).unwrap(),
+                        request["body"].as_str().unwrap().as_bytes().to_vec(),
+                        serde_json::to_string(&request["query"]).unwrap(),
+                        Option::<String>::None,
+                        Option::<String>::None,
+                        Option::<String>::None,
+                        Option::<String>::None,
+                        "knocker.events",
+                        3,
+                    ],
+                    |row| row.get(0),
+                )
+                .unwrap_or_else(|err| panic!("{provider} receive fixture failed: {err}"));
+            let result: serde_json::Value = serde_json::from_str(&result_json).unwrap();
+            assert_eq!(result["status_code"], 204, "{provider}");
+            assert_eq!(result["duplicate"], 0, "{provider}");
+
+            let row: (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+                Vec<u8>,
+            ) = conn
+                .query_row(
+                    "SELECT provider_event_id, provider_delivery_id, event_type, status, body_blob FROM knocker_events WHERE id=?1",
+                    params![result["event_id"].as_i64().unwrap()],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .unwrap();
+
+            assert_eq!(
+                row.0,
+                expected_string(expected, "provider_event_id"),
+                "{provider}"
+            );
+            assert_eq!(
+                row.1,
+                expected_string(expected, "provider_delivery_id"),
+                "{provider}"
+            );
+            assert_eq!(row.2, expected_string(expected, "event_type"), "{provider}");
+            assert_eq!(row.3, "received", "{provider}");
+            assert_eq!(
+                row.4,
+                request["body"].as_str().unwrap().as_bytes(),
+                "{provider}"
+            );
+        }
+    }
+
+    fn expected_string(value: &serde_json::Value, key: &str) -> Option<String> {
+        value
+            .get(key)
+            .and_then(|inner| inner.as_str())
+            .map(str::to_owned)
     }
 }

@@ -1,5 +1,12 @@
+use base64::{Engine as _, engine::general_purpose};
+use hmac::{Hmac, Mac};
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::{Map, Value};
+use sha2::Sha256;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+type HmacSha256 = Hmac<Sha256>;
 
 fn to_sql_err<E: std::fmt::Display>(e: E) -> rusqlite::Error {
     rusqlite::Error::UserFunctionError(Box::new(std::io::Error::other(e.to_string())))
@@ -51,6 +58,42 @@ pub fn attach_knocker_functions(conn: &Connection) -> rusqlite::Result<()> {
             &query_json,
             signature_valid,
             signature_error.as_deref(),
+            provider_event_id.as_deref(),
+            provider_delivery_id.as_deref(),
+            event_type.as_deref(),
+            dedupe_key.as_deref(),
+            &queue_name,
+            max_attempts,
+        )
+        .map_err(to_sql_err)
+    })?;
+
+    conn.create_scalar_function("knocker_receive", 14, FunctionFlags::SQLITE_UTF8, |ctx| {
+        let endpoint_name: String = ctx.get(0)?;
+        let provider: String = ctx.get(1)?;
+        let secrets_json: String = ctx.get(2)?;
+        let options_json: String = ctx.get(3)?;
+        let method: String = ctx.get(4)?;
+        let headers_json: String = ctx.get(5)?;
+        let body_blob: Vec<u8> = ctx.get(6)?;
+        let query_json: String = ctx.get(7)?;
+        let provider_event_id: Option<String> = ctx.get(8)?;
+        let provider_delivery_id: Option<String> = ctx.get(9)?;
+        let event_type: Option<String> = ctx.get(10)?;
+        let dedupe_key: Option<String> = ctx.get(11)?;
+        let queue_name: String = ctx.get(12)?;
+        let max_attempts: i64 = ctx.get(13)?;
+        let db = unsafe { ctx.get_connection() }?;
+        receive(
+            &db,
+            &endpoint_name,
+            &provider,
+            &secrets_json,
+            &options_json,
+            &method,
+            &headers_json,
+            &body_blob,
+            &query_json,
             provider_event_id.as_deref(),
             provider_delivery_id.as_deref(),
             event_type.as_deref(),
@@ -332,6 +375,608 @@ pub fn ingest(
         "status_code": 204,
     })
     .to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Verify a curated provider request and ingest the delivery/event through the
+/// same shared primitive every language binding uses.
+pub fn receive(
+    conn: &Connection,
+    endpoint_name: &str,
+    provider: &str,
+    secrets_json: &str,
+    options_json: &str,
+    method: &str,
+    headers_json: &str,
+    body_blob: &[u8],
+    query_json: &str,
+    provider_event_id: Option<&str>,
+    provider_delivery_id: Option<&str>,
+    event_type: Option<&str>,
+    dedupe_key: Option<&str>,
+    queue_name: &str,
+    max_attempts: i64,
+) -> rusqlite::Result<String> {
+    let secrets = parse_string_array("secrets_json", secrets_json)?;
+    let options = parse_json_value("options_json", options_json)?;
+    let headers = parse_object("headers_json", headers_json)?;
+    let outcome = verify_provider(provider, &headers, body_blob, &secrets, &options)?;
+
+    ingest(
+        conn,
+        endpoint_name,
+        method,
+        headers_json,
+        body_blob,
+        query_json,
+        Some(if outcome.valid { 1 } else { 0 }),
+        outcome.signature_error.as_deref(),
+        provider_event_id.or(outcome.provider_event_id.as_deref()),
+        provider_delivery_id.or(outcome.provider_delivery_id.as_deref()),
+        event_type.or(outcome.event_type.as_deref()),
+        dedupe_key,
+        queue_name,
+        max_attempts,
+    )
+}
+
+struct ProviderOutcome {
+    valid: bool,
+    signature_error: Option<String>,
+    provider_delivery_id: Option<String>,
+    provider_event_id: Option<String>,
+    event_type: Option<String>,
+}
+
+impl ProviderOutcome {
+    fn accept(
+        provider_delivery_id: Option<String>,
+        provider_event_id: Option<String>,
+        event_type: Option<String>,
+    ) -> Self {
+        Self {
+            valid: true,
+            signature_error: None,
+            provider_delivery_id,
+            provider_event_id,
+            event_type,
+        }
+    }
+
+    fn reject(
+        signature_error: impl Into<String>,
+        provider_delivery_id: Option<String>,
+        provider_event_id: Option<String>,
+        event_type: Option<String>,
+    ) -> Self {
+        Self {
+            valid: false,
+            signature_error: Some(signature_error.into()),
+            provider_delivery_id,
+            provider_event_id,
+            event_type,
+        }
+    }
+}
+
+fn verify_provider(
+    provider: &str,
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+    options: &Value,
+) -> rusqlite::Result<ProviderOutcome> {
+    match provider.to_ascii_lowercase().as_str() {
+        "github" => verify_github(headers, body_blob, secrets),
+        "stripe" => verify_stripe(headers, body_blob, secrets, options),
+        "shopify" => verify_shopify(headers, body_blob, secrets),
+        "slack" => verify_slack(headers, body_blob, secrets, options),
+        "postmark" => verify_postmark(headers, body_blob, secrets),
+        "resend" => verify_resend(headers, body_blob, secrets, options),
+        "paddle" => verify_paddle(headers, body_blob, secrets, options),
+        "lemon-squeezy" | "lemonsqueezy" => verify_lemonsqueezy(headers, body_blob, secrets),
+        other => Err(rusqlite::Error::InvalidParameterName(format!(
+            "unknown provider: {other}"
+        ))),
+    }
+}
+
+fn verify_github(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+) -> rusqlite::Result<ProviderOutcome> {
+    let delivery_id = header(headers, "x-github-delivery");
+    let event_type = header(headers, "x-github-event");
+    let Some(signature) = header(headers, "x-hub-signature-256") else {
+        return Ok(ProviderOutcome::reject(
+            "missing X-Hub-Signature-256",
+            delivery_id,
+            None,
+            event_type,
+        ));
+    };
+    let Some(hex) = signature.strip_prefix("sha256=") else {
+        return Ok(ProviderOutcome::reject(
+            "malformed X-Hub-Signature-256",
+            delivery_id,
+            None,
+            event_type,
+        ));
+    };
+    if secrets
+        .iter()
+        .any(|secret| hmac_hex(secret.as_bytes(), body_blob) == hex)
+    {
+        Ok(ProviderOutcome::accept(delivery_id, None, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid GitHub signature",
+            delivery_id,
+            None,
+            event_type,
+        ))
+    }
+}
+
+fn verify_stripe(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+    options: &Value,
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_field(body.as_ref(), "id");
+    let event_type = json_string_field(body.as_ref(), "type");
+    let Some(signature) = header(headers, "stripe-signature") else {
+        return Ok(ProviderOutcome::reject(
+            "missing Stripe-Signature",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let parts = semicolon_parts(&signature, ',');
+    let Some(timestamp) = parts.get("t").and_then(|value| value.parse::<i64>().ok()) else {
+        return Ok(ProviderOutcome::reject(
+            "missing Stripe timestamp",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if outside_tolerance(timestamp, tolerance_s(options, 300)?) {
+        return Ok(ProviderOutcome::reject(
+            "Stripe timestamp outside tolerance",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    }
+    let signed = [timestamp.to_string().as_bytes(), b".", body_blob].concat();
+    let signatures = repeated_parts(&signature, ',', "v1");
+    if secrets.iter().any(|secret| {
+        signatures
+            .iter()
+            .any(|sig| hmac_hex(secret.as_bytes(), &signed) == *sig)
+    }) {
+        Ok(ProviderOutcome::accept(None, provider_event_id, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Stripe signature",
+            None,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_shopify(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+) -> rusqlite::Result<ProviderOutcome> {
+    let delivery_id = header(headers, "x-shopify-webhook-id");
+    let provider_event_id = header(headers, "x-shopify-event-id");
+    let event_type = header(headers, "x-shopify-topic");
+    let Some(signature) = header(headers, "x-shopify-hmac-sha256") else {
+        return Ok(ProviderOutcome::reject(
+            "missing X-Shopify-Hmac-Sha256",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if secrets
+        .iter()
+        .any(|secret| hmac_base64(secret.as_bytes(), body_blob) == signature)
+    {
+        Ok(ProviderOutcome::accept(
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Shopify signature",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_slack(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+    options: &Value,
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_field(body.as_ref(), "event_id");
+    let event_type = json_string_path(body.as_ref(), &["event", "type"])
+        .or_else(|| json_string_field(body.as_ref(), "type"));
+    let Some(timestamp) =
+        header(headers, "x-slack-request-timestamp").and_then(|value| value.parse::<i64>().ok())
+    else {
+        return Ok(ProviderOutcome::reject(
+            "missing X-Slack-Request-Timestamp",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if outside_tolerance(timestamp, tolerance_s(options, 300)?) {
+        return Ok(ProviderOutcome::reject(
+            "Slack timestamp outside tolerance",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    }
+    let Some(signature) = header(headers, "x-slack-signature") else {
+        return Ok(ProviderOutcome::reject(
+            "missing X-Slack-Signature",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let signed = [b"v0:", timestamp.to_string().as_bytes(), b":", body_blob].concat();
+    if secrets
+        .iter()
+        .any(|secret| format!("v0={}", hmac_hex(secret.as_bytes(), &signed)) == signature)
+    {
+        Ok(ProviderOutcome::accept(None, provider_event_id, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Slack signature",
+            None,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_postmark(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_field(body.as_ref(), "MessageID");
+    let event_type = json_string_field(body.as_ref(), "RecordType");
+    let Some(authorization) = header(headers, "authorization") else {
+        return Ok(ProviderOutcome::reject(
+            "missing Authorization",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if !authorization.starts_with("Basic ") {
+        return Ok(ProviderOutcome::reject(
+            "invalid Authorization scheme",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    }
+    if secrets.iter().any(|secret| {
+        let expected = format!(
+            "Basic {}",
+            general_purpose::STANDARD.encode(secret.as_bytes())
+        );
+        authorization == expected
+    }) {
+        Ok(ProviderOutcome::accept(None, provider_event_id, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Postmark Authorization",
+            None,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_resend(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+    options: &Value,
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_path(body.as_ref(), &["data", "email_id"]);
+    let event_type = json_string_field(body.as_ref(), "type");
+    let delivery_id = header(headers, "svix-id");
+    let Some(timestamp) = header(headers, "svix-timestamp") else {
+        return Ok(ProviderOutcome::reject(
+            "missing svix-timestamp",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let timestamp_int = timestamp.parse::<i64>().unwrap_or(-1);
+    if timestamp_int < 0 || outside_tolerance(timestamp_int, tolerance_s(options, 300)?) {
+        return Ok(ProviderOutcome::reject(
+            "Svix timestamp outside tolerance",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ));
+    }
+    let Some(signature) = header(headers, "svix-signature") else {
+        return Ok(ProviderOutcome::reject(
+            "missing svix-signature",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let Some(delivery) = delivery_id.as_deref() else {
+        return Ok(ProviderOutcome::reject(
+            "missing svix-id",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let signed = [
+        delivery.as_bytes(),
+        b".",
+        timestamp.as_bytes(),
+        b".",
+        body_blob,
+    ]
+    .concat();
+    let signatures = signature
+        .split_whitespace()
+        .filter_map(|part| part.strip_prefix("v1,").map(str::to_owned))
+        .collect::<Vec<_>>();
+    if secrets.iter().any(|secret| {
+        let raw_secret = secret.strip_prefix("whsec_").unwrap_or(secret);
+        let expected = hmac_base64(raw_secret.as_bytes(), &signed);
+        signatures.iter().any(|sig| *sig == expected)
+    }) {
+        Ok(ProviderOutcome::accept(
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Svix signature",
+            delivery_id,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_paddle(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+    options: &Value,
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_field(body.as_ref(), "event_id");
+    let event_type = json_string_field(body.as_ref(), "event_type")
+        .or_else(|| json_string_path(body.as_ref(), &["event", "type"]));
+    let Some(signature) = header(headers, "paddle-signature") else {
+        return Ok(ProviderOutcome::reject(
+            "missing Paddle-Signature",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    let parts = semicolon_parts(&signature, ';');
+    let Some(timestamp) = parts.get("ts").and_then(|value| value.parse::<i64>().ok()) else {
+        return Ok(ProviderOutcome::reject(
+            "missing Paddle timestamp",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if outside_tolerance(timestamp, tolerance_s(options, 5)?) {
+        return Ok(ProviderOutcome::reject(
+            "Paddle timestamp outside tolerance",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    }
+    let signed = [timestamp.to_string().as_bytes(), b":", body_blob].concat();
+    let Some(h1) = parts.get("h1") else {
+        return Ok(ProviderOutcome::reject(
+            "missing Paddle h1 signature",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if secrets
+        .iter()
+        .any(|secret| hmac_hex(secret.as_bytes(), &signed) == *h1)
+    {
+        Ok(ProviderOutcome::accept(None, provider_event_id, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Paddle signature",
+            None,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn verify_lemonsqueezy(
+    headers: &Map<String, Value>,
+    body_blob: &[u8],
+    secrets: &[String],
+) -> rusqlite::Result<ProviderOutcome> {
+    let body = parse_body_json(body_blob);
+    let provider_event_id = json_string_path(body.as_ref(), &["data", "attributes", "identifier"])
+        .or_else(|| json_string_path(body.as_ref(), &["data", "id"]));
+    let event_type = header(headers, "x-event-name")
+        .or_else(|| json_string_path(body.as_ref(), &["meta", "event_name"]));
+    let Some(signature) = header(headers, "x-signature") else {
+        return Ok(ProviderOutcome::reject(
+            "missing X-Signature",
+            None,
+            provider_event_id,
+            event_type,
+        ));
+    };
+    if secrets
+        .iter()
+        .any(|secret| hmac_hex(secret.as_bytes(), body_blob) == signature)
+    {
+        Ok(ProviderOutcome::accept(None, provider_event_id, event_type))
+    } else {
+        Ok(ProviderOutcome::reject(
+            "invalid Lemon Squeezy signature",
+            None,
+            provider_event_id,
+            event_type,
+        ))
+    }
+}
+
+fn parse_string_array(name: &str, json_text: &str) -> rusqlite::Result<Vec<String>> {
+    serde_json::from_str::<Vec<String>>(json_text).map_err(|_| {
+        rusqlite::Error::InvalidParameterName(format!("{name} must be a JSON string array"))
+    })
+}
+
+fn parse_json_value(name: &str, json_text: &str) -> rusqlite::Result<Value> {
+    serde_json::from_str::<Value>(json_text)
+        .map_err(|_| rusqlite::Error::InvalidParameterName(format!("{name} must be valid JSON")))
+}
+
+fn parse_object(name: &str, json_text: &str) -> rusqlite::Result<Map<String, Value>> {
+    match parse_json_value(name, json_text)? {
+        Value::Object(map) => Ok(map),
+        _ => Err(rusqlite::Error::InvalidParameterName(format!(
+            "{name} must be a JSON object"
+        ))),
+    }
+}
+
+fn header(headers: &Map<String, Value>, name: &str) -> Option<String> {
+    headers.iter().find_map(|(key, value)| {
+        if key.eq_ignore_ascii_case(name) {
+            value.as_str().map(str::to_owned)
+        } else {
+            None
+        }
+    })
+}
+
+fn parse_body_json(body_blob: &[u8]) -> Option<Value> {
+    serde_json::from_slice::<Value>(body_blob).ok()
+}
+
+fn json_string_field(value: Option<&Value>, key: &str) -> Option<String> {
+    value
+        .and_then(Value::as_object)
+        .and_then(|object| object.get(key))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+fn json_string_path(value: Option<&Value>, path: &[&str]) -> Option<String> {
+    let mut current = value?;
+    for segment in path {
+        current = current.as_object()?.get(*segment)?;
+    }
+    current.as_str().map(str::to_owned)
+}
+
+fn hmac_hex(secret: &[u8], payload: &[u8]) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(payload);
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn hmac_base64(secret: &[u8], payload: &[u8]) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(payload);
+    general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+}
+
+fn semicolon_parts(text: &str, delimiter: char) -> std::collections::HashMap<String, String> {
+    text.split(delimiter)
+        .filter_map(|part| {
+            let (key, value) = part.split_once('=')?;
+            Some((key.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn repeated_parts(text: &str, delimiter: char, wanted_key: &str) -> Vec<String> {
+    text.split(delimiter)
+        .filter_map(|part| {
+            let (key, value) = part.split_once('=')?;
+            if key.trim() == wanted_key {
+                Some(value.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn tolerance_s(options: &Value, default: i64) -> rusqlite::Result<i64> {
+    let Some(object) = options.as_object() else {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "options_json must be a JSON object".to_string(),
+        ));
+    };
+    match object.get("tolerance_s") {
+        None => Ok(default),
+        Some(value) => value.as_i64().filter(|value| *value >= 0).ok_or_else(|| {
+            rusqlite::Error::InvalidParameterName(
+                "provider option 'tolerance_s' must be a non-negative integer".to_string(),
+            )
+        }),
+    }
+}
+
+fn outside_tolerance(timestamp: i64, tolerance: i64) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    (now - timestamp).abs() > tolerance
 }
 
 fn find_existing_event_id(
@@ -686,21 +1331,28 @@ pub fn run_retention_pass(
     }
 
     let event_result = match event_older_than {
-        Some(cutoff) => Some(serde_json::from_str::<serde_json::Value>(&prune_events(
-            conn,
-            statuses_json,
-            cutoff,
-            event_limit,
-            queue_name,
-        )?)
-        .map_err(to_sql_err)?),
+        Some(cutoff) => Some(
+            serde_json::from_str::<serde_json::Value>(&prune_events(
+                conn,
+                statuses_json,
+                cutoff,
+                event_limit,
+                queue_name,
+            )?)
+            .map_err(to_sql_err)?,
+        ),
         None => None,
     };
     let orphan_result = match orphan_older_than {
-        Some(cutoff) => Some(serde_json::from_str::<serde_json::Value>(
-            &prune_orphan_deliveries(conn, cutoff, orphan_limit, queue_name)?,
-        )
-        .map_err(to_sql_err)?),
+        Some(cutoff) => Some(
+            serde_json::from_str::<serde_json::Value>(&prune_orphan_deliveries(
+                conn,
+                cutoff,
+                orphan_limit,
+                queue_name,
+            )?)
+            .map_err(to_sql_err)?,
+        ),
         None => None,
     };
 
@@ -861,7 +1513,9 @@ fn prune_event_candidate_ids(
     values.push(rusqlite::types::Value::Integer(older_than));
     values.push(rusqlite::types::Value::Integer(limit));
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| row.get::<_, i64>(0))?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
+        row.get::<_, i64>(0)
+    })?;
     rows.collect()
 }
 
@@ -922,7 +1576,10 @@ fn delete_live_jobs_by_id(conn: &Connection, job_ids: &[i64]) -> rusqlite::Resul
 
 fn delete_deliveries_for_event_ids(conn: &Connection, event_ids: &[i64]) -> rusqlite::Result<()> {
     for event_id in event_ids {
-        conn.execute("DELETE FROM knocker_deliveries WHERE event_id=?1", params![event_id])?;
+        conn.execute(
+            "DELETE FROM knocker_deliveries WHERE event_id=?1",
+            params![event_id],
+        )?;
     }
     Ok(())
 }
@@ -955,7 +1612,10 @@ fn prune_orphan_delivery_candidate_ids(
 
 fn delete_deliveries_by_id(conn: &Connection, delivery_ids: &[i64]) -> rusqlite::Result<()> {
     for delivery_id in delivery_ids {
-        conn.execute("DELETE FROM knocker_deliveries WHERE id=?1", params![delivery_id])?;
+        conn.execute(
+            "DELETE FROM knocker_deliveries WHERE id=?1",
+            params![delivery_id],
+        )?;
     }
     Ok(())
 }
