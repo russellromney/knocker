@@ -17,7 +17,7 @@ hero:
       icon: external
 ---
 
-Knocker is a loadable SQLite extension plus language bindings for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound webhook events without adding a hosted control plane.
+Knocker is a loadable SQLite extension plus language bindings for Python, Node, Bun, Ruby, Go, and Elixir. It is for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound webhook events without adding a hosted control plane.
 
 Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker in the same process or another process runs later against rows already committed to SQLite.
 
@@ -27,6 +27,7 @@ Knocker's answer is deliberately local:
 
 - your app process or worker process
 - one SQLite file
+- shared Rust/SQLite receive, queue, lifecycle, and retention semantics
 - durable ingress before success
 - async processing later through Honker-backed queue state
 

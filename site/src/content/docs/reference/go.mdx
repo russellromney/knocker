@@ -1,0 +1,81 @@
+---
+title: Go binding
+description: Install and use Knocker from Go.
+---
+
+The Go binding loads Knocker's SQLite extension through `mattn/go-sqlite3`
+and exposes the shared receive, worker, operator, and retention contract.
+
+## Install
+
+The module is currently repo-local. Build the extension first:
+
+```bash
+cargo build --release -p knocker-extension
+```
+
+CGO must be enabled because the binding uses `github.com/mattn/go-sqlite3`.
+
+```go
+import knockersqlite "github.com/russellromney/knocker/packages/knocker-go"
+```
+
+## Use
+
+```go
+import (
+    "context"
+    "fmt"
+
+    knockersqlite "github.com/russellromney/knocker/packages/knocker-go"
+)
+
+webhooks, err := knockersqlite.Open("app.db")
+if err != nil {
+    panic(err)
+}
+defer webhooks.Close()
+
+provider := "token-header"
+_, err = webhooks.AddEndpoint(knockersqlite.AddEndpointParams{
+    Name:     "automation",
+    Path:     "/webhooks/automation",
+    Provider: &provider,
+    Enabled:  true,
+    Secrets:  []string{"dev-secret"},
+})
+if err != nil {
+    panic(err)
+}
+
+webhooks.RegisterEventHandler("automation", "invoice.created", func(event knockersqlite.Event, tx *knockersqlite.Tx) error {
+    fmt.Println("handled", event.ID)
+    return nil
+})
+
+result, err := webhooks.Receive(knockersqlite.ReceiveParams{
+    Endpoint: "automation",
+    Body:     []byte(`{"id":"evt_1","type":"invoice.created"}`),
+    Headers:  map[string]any{"X-Knocker-Token": "dev-secret"},
+})
+if err != nil {
+    panic(err)
+}
+
+_, err = webhooks.RunWorker(context.Background(), "go-worker", 1)
+if err != nil {
+    panic(err)
+}
+fmt.Println(result.StatusCode)
+```
+
+`Receive(...)` delegates provider verification to the Rust/SQLite
+`knocker_receive(...)` path. `RunWorker(...)` runs handlers later against
+stored SQLite rows and rolls handler writes back before retry/dead-letter
+bookkeeping when the handler returns an error.
+
+## Test
+
+```bash
+make test-go
+```

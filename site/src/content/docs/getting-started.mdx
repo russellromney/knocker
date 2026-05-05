@@ -5,11 +5,17 @@ description: Install Knocker and store your first webhook in a few minutes.
 
 ## Install
 
+Pick the binding for your runtime. This first run uses Python because it is
+compact, but the durable behavior lives in the shared SQLite extension and
+the repo also includes Node, Bun, Ruby, Go, and Elixir bindings over the
+same contract.
+
 ```bash
 pip install knockerlite
 ```
 
-This page uses the Python package for a compact first run. Knocker's durable behavior lives in the shared SQLite extension contract, and the repo also includes bindings for Node, Bun, Ruby, Go, and Elixir.
+If you are not using Python, jump to [SQLite bindings](/reference/sqlite-bindings/)
+for the equivalent open, receive, worker, operator, and retention shapes.
 
 ## Open a database and register an endpoint
 

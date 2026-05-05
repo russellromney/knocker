@@ -42,6 +42,39 @@ If you need a hotfix for a curated built-in, write a distinctly-named
 Curating a new provider goes through the
 [Curated provider contribution guide](/guides/contributing-providers/).
 
+## Curated provider catalog
+
+These names work through the shared SQLite/Rust `knocker_receive(...)`
+path and are available to every binding that exposes `receive(...)`.
+
+| Provider | Verification shape | Notes |
+| --- | --- | --- |
+| `stripe` | `Stripe-Signature` timestamped HMAC-SHA256 | Supports overlapping secrets and `provider_options={"tolerance_s": 300}`. Extracts JSON `id` and `type`. |
+| `github` | `X-Hub-Signature-256: sha256=<hex>` over the raw body | Uses `X-GitHub-Delivery` as the dedupe identity and `X-GitHub-Event` as the event type. |
+| `shopify` | `X-Shopify-Hmac-Sha256` base64 HMAC-SHA256 | Uses Shopify webhook/event headers for delivery id, provider event id, and event type. |
+| `slack` | `X-Slack-Signature` over `v0:{timestamp}:{body}` | Supports timestamp tolerance and extracts `event_id` / nested event type where present. |
+| `postmark` | HTTP Basic Auth | Extracts `MessageID` and `RecordType` from JSON bodies. |
+| `resend` | Svix/Standard Webhooks signature headers | Expects Svix-style `whsec_...` secrets and extracts `svix-id`, `data.email_id`, and `type`. |
+| `paddle` | `Paddle-Signature` timestamped HMAC-SHA256 | Extracts `event_id` and `event_type` from JSON bodies. |
+| `lemon-squeezy` | `X-Signature` hex HMAC-SHA256 | Extracts the event name plus payload identifier from JSON bodies. |
+| `standard-webhooks` | Standard Webhooks/Svix `webhook-id`, `webhook-timestamp`, `webhook-signature` | Also accepts `svix` as an alias. Expects Svix-style `whsec_...` secrets. |
+| `clerk` | Svix/Standard Webhooks signature headers | Same signature scheme as Standard Webhooks, with Clerk's webhook headers. |
+| `twilio` | `X-Twilio-Signature` over configured public URL plus sorted form/query params | Requires `provider_options={"url": "https://example.com/webhooks/twilio"}`. This is the classic Twilio request-validation shape. |
+| `sendgrid` | Twilio SendGrid ECDSA Event Webhook signature | Secrets are PEM public keys. Supports timestamp tolerance. |
+| `linear` | `Linear-Signature` HMAC-SHA256 | Supports timestamp tolerance when the body contains `webhookTimestamp`. |
+| `meta` | `X-Hub-Signature-256: sha256=<hex>` over the raw body | Covers Meta/Facebook-style webhook signatures. |
+| `discord` | Ed25519 interaction signature headers | Secrets are Discord public keys. |
+| `zendesk` | Timestamped HMAC-SHA256 | Verifies Zendesk's timestamp plus raw-body signature shape. |
+| `intercom` | `X-Hub-Signature: sha1=<hex>` over the raw body | Extracts `id` and `topic` / `type` from JSON bodies. |
+| `hubspot` | HubSpot v3 base64 HMAC-SHA256 over method, URL, body, and timestamp | Requires `provider_options={"url": "https://example.com/webhooks/hubspot"}`; `method` defaults to `POST`. |
+| `token-header` | Constant-time comparison of a configured header value | Defaults to `X-Knocker-Token`; use `provider_options={"header": "x-my-secret"}` to choose another header. |
+| `bearer-token` | `Authorization: Bearer <secret>` | Useful for Zapier, Make, n8n, and other middleman tools that can set an Authorization header. |
+| `basic-auth` | `Authorization: Basic <base64(secret)>` | Useful when a webhook sender can set Basic Auth but not provider-specific HMAC signatures. |
+
+Every curated provider has repo-owned fixtures under `providers/<name>/`.
+Those fixtures are exercised by Rust core tests and by the Python provider
+mirror so the documented behavior stays tied to executable examples.
+
 ## Built-in: Stripe
 
 ```python

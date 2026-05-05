@@ -16,7 +16,7 @@ Docs live at [knocker.dev](https://knocker.dev).
 
 ## At a glance
 
-Quickstart with the Python package:
+Knocker ships as one SQLite extension contract with language bindings for Python, Node, Bun, Ruby, Go, and Elixir. This is the smallest Python-shaped example; the same durable receive/worker/operator contract is available from the other bindings too.
 
 ```bash
 pip install knockerlite
@@ -71,6 +71,19 @@ For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knoc
 - Inspect events and deliveries before building app-specific admin routes
 - Prune handled, ignored, and orphan-delivery rows explicitly when you choose
 - Run retention helpers/automation against the same SQLite file with core-owned prune semantics
+
+## Bindings
+
+| Runtime | Package path | Shape |
+| --- | --- | --- |
+| Python | `packages/knocker` | Full Python package with endpoint-local helpers, app-local providers, workers, operators, and retention automation. |
+| Node | `packages/knocker-node` | SQLite-extension binding with receive, typed handlers, workers, operators, retention, and provider verification through shared Rust code. |
+| Bun | `packages/knocker-bun` | Same shared SQLite contract as Node, adapted to Bun's SQLite runtime. |
+| Ruby | `packages/knocker-ruby` | Same shared SQLite contract with Ruby-style handlers and operators. |
+| Go | `packages/knocker-go` | Same shared SQLite contract with context-aware workers. |
+| Elixir | `packages/knocker-elixir` | Same shared SQLite contract with Elixir handler and worker helpers. |
+
+The non-Python bindings do not re-implement provider verification. Curated `receive(...)` calls delegate to the shared Rust/SQLite `knocker_receive(...)` path, so provider fixes land once and are exercised across runtimes.
 
 ## One route
 

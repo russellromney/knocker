@@ -1,0 +1,57 @@
+---
+title: Node binding
+description: Install and use Knocker from Node.
+---
+
+The Node binding loads Knocker's SQLite extension and exposes the shared
+receive, worker, operator, and retention contract.
+
+## Install
+
+The package is currently repo-local. Build the extension first:
+
+```bash
+cargo build --release -p knocker-extension
+```
+
+Then import the binding from the package path:
+
+```js
+import { KnockerSqlite } from "./packages/knocker-node/index.mjs";
+```
+
+## Use
+
+```js
+const webhooks = new KnockerSqlite("app.db");
+
+webhooks.addEndpoint({
+  name: "automation",
+  path: "/webhooks/automation",
+  provider: "token-header",
+  secrets: ["dev-secret"],
+});
+
+webhooks.registerHandler("automation", "invoice.created", (event, tx) => {
+  console.log("handled", event.id);
+});
+
+const result = webhooks.receive({
+  endpoint: "automation",
+  body: Buffer.from('{"id":"evt_1","type":"invoice.created"}'),
+  headers: { "X-Knocker-Token": "dev-secret" },
+});
+
+await webhooks.runWorker({ workerId: "node-worker", maxJobs: 1 });
+```
+
+`receive(...)` delegates provider verification to the Rust/SQLite
+`knocker_receive(...)` path. `runWorker(...)` runs handlers later against
+stored SQLite rows and rolls handler writes back before retry/dead-letter
+bookkeeping when the handler throws.
+
+## Test
+
+```bash
+make test-node
+```

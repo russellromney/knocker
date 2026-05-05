@@ -49,6 +49,7 @@ export default defineConfig({
           items: [
             { label: 'Framework integration', slug: 'guides/framework-integration' },
             { label: 'Verified ingress', slug: 'guides/verified-ingress' },
+            { label: 'Contributing providers', slug: 'guides/contributing-providers' },
             { label: 'Operator surface', slug: 'guides/operators' },
             { label: 'Operator runbook', slug: 'guides/operator-runbook' },
             { label: 'Retention and pruning', slug: 'guides/retention' },
@@ -58,6 +59,12 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'Python API', slug: 'reference/python' },
+            { label: 'SQLite bindings', slug: 'reference/sqlite-bindings' },
+            { label: 'Node binding', slug: 'reference/node' },
+            { label: 'Bun binding', slug: 'reference/bun' },
+            { label: 'Ruby binding', slug: 'reference/ruby' },
+            { label: 'Go binding', slug: 'reference/go' },
+            { label: 'Elixir binding', slug: 'reference/elixir' },
           ],
         },
         {

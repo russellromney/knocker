@@ -3,10 +3,26 @@ title: SQLite bindings
 description: Node, Bun, Ruby, Go, and Elixir bindings over Knocker's shared SQLite contract.
 ---
 
-Knocker is a loadable SQLite extension plus language bindings. The bindings
-on this page talk to the same shared SQLite contract as the Python package.
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Every binding in this page proves the same shared SQLite-contract baseline:
+Knocker's non-Python bindings are thin language surfaces over the same
+loadable SQLite extension. They do not re-implement provider verification
+or queue semantics; curated `receive(...)` calls delegate to shared
+Rust/SQLite code.
+
+## Binding Pages
+
+<CardGrid>
+  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
+  <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
+  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
+  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
+  <LinkCard title="Elixir" href="/reference/elixir/" description="Install and use Knocker from Elixir." />
+</CardGrid>
+
+## Shared Baseline
+
+Every binding in this section proves the same SQLite-contract baseline:
 
 - open/bootstrap
 - endpoint registration
@@ -26,204 +42,19 @@ Every binding in this page proves the same shared SQLite-contract baseline:
 - retention pass/loop helpers
 - prune/audit reads
 
-These bindings load the Knocker SQLite extension directly. They do not wrap
-separate Honker language packages; queue operations go through the shared
-SQLite functions exposed by the extension. They are not framework adapters.
+These bindings load the Knocker SQLite extension directly. They are not
+framework adapters and they do not wrap separate Honker language packages;
+queue operations go through shared SQLite functions exposed by the
+extension.
 
-## Node
+Curated provider names are the same across bindings: `stripe`, `github`,
+`shopify`, `slack`, `postmark`, `resend`, `paddle`, `lemon-squeezy`,
+`standard-webhooks`, `clerk`, `twilio`, `sendgrid`, `linear`, `meta`,
+`discord`, `zendesk`, `intercom`, `hubspot`, `token-header`,
+`bearer-token`, and `basic-auth`. See [Verified ingress](/guides/verified-ingress/)
+for provider-specific options and caveats.
 
-Source: `packages/knocker-node`
-
-```js
-import { KnockerSqlite } from "./packages/knocker-node/index.mjs";
-
-const db = new KnockerSqlite("app.db");
-db.addEndpoint({
-  name: "github",
-  path: "/webhooks/github",
-  provider: "github",
-  secrets: ["github-secret"],
-});
-
-const result = db.receive({
-  endpoint: "github",
-  body: Buffer.from('{"zen":"keep it logically awesome"}'),
-  headers: {
-    "X-Hub-Signature-256": "sha256=...",
-    "X-GitHub-Delivery": "delivery-1",
-    "X-GitHub-Event": "push",
-  },
-});
-
-db.registerHandler("github", (event, tx) => {
-  // Assume this app-owned table already exists.
-  tx.prepare("INSERT INTO handled_events (event_id) VALUES (?)").run(event.id);
-  console.log("handled", event.id);
-});
-
-await db.runWorker({ workerId: "node-worker", maxJobs: 1 });
-db.replay(result.event_id);
-db.ignore(result.event_id);
-```
-
-## Bun
-
-Source: `packages/knocker-bun`
-
-```ts
-import { KnockerSqlite } from "./packages/knocker-bun/index";
-
-const db = new KnockerSqlite("app.db");
-db.addEndpoint({
-  name: "github",
-  path: "/webhooks/github",
-  provider: "github",
-  secrets: ["github-secret"],
-});
-
-const result = db.receive({
-  endpoint: "github",
-  body: Buffer.from('{"zen":"keep it logically awesome"}'),
-  headers: {
-    "X-Hub-Signature-256": "sha256=...",
-    "X-GitHub-Delivery": "delivery-1",
-    "X-GitHub-Event": "push",
-  },
-});
-
-db.registerHandler("github", (event, tx) => {
-  // Assume this app-owned table already exists.
-  tx.exec(`INSERT INTO handled_events (event_id) VALUES (${Number(event.id)})`);
-  console.log("handled", event.id);
-});
-
-await db.runWorker({ workerId: "bun-worker", maxJobs: 1 });
-db.replay(result.event_id);
-db.ignore(result.event_id);
-```
-
-## Ruby
-
-Source: `packages/knocker-ruby`
-
-```ruby
-require_relative "../packages/knocker-ruby/lib/knocker_sqlite"
-
-db = KnockerSqlite::Database.open("app.db")
-db.add_endpoint(
-  name: "github",
-  path: "/webhooks/github",
-  provider: "github",
-  enabled: true,
-  secrets: ["github-secret"],
-)
-
-result = db.receive(
-  endpoint: "github",
-  body: "{\"zen\":\"keep it logically awesome\"}",
-  headers: {
-    "X-Hub-Signature-256" => "sha256=...",
-    "X-GitHub-Delivery" => "delivery-1",
-    "X-GitHub-Event" => "push",
-  },
-)
-
-db.register_handler("github") do |event, tx|
-  # Assume this app-owned table already exists.
-  tx.exec("INSERT INTO handled_events (event_id) VALUES (#{event['id']})")
-  puts "handled #{event['id']}"
-end
-
-db.run_worker(worker_id: "ruby-worker", max_jobs: 1)
-db.replay(result["event_id"])
-db.ignore(result["event_id"])
-```
-
-## Go
-
-Source: `packages/knocker-go`
-
-```go
-webhooks, err := knockersqlite.Open("app.db")
-if err != nil {
-    panic(err)
-}
-defer webhooks.Close()
-
-provider := "github"
-_, err = webhooks.AddEndpoint(knockersqlite.AddEndpointParams{
-    Name:     "github",
-    Path:     "/webhooks/github",
-    Provider: &provider,
-    Enabled:  true,
-    Secrets:  []string{"github-secret"},
-})
-
-webhooks.RegisterHandler("github", func(event knockersqlite.Event, tx *knockersqlite.Tx) error {
-    // Assume this app-owned table already exists.
-    _, err := tx.Exec("INSERT INTO handled_events (event_id) VALUES (?)", event.ID)
-    if err != nil {
-        return err
-    }
-    return nil
-})
-
-result, err := webhooks.Receive(knockersqlite.ReceiveParams{
-    Endpoint: "github",
-    Body:     []byte(`{"zen":"keep it logically awesome"}`),
-    Headers: map[string]any{
-        "X-Hub-Signature-256": "sha256=...",
-        "X-GitHub-Delivery":   "delivery-1",
-        "X-GitHub-Event":      "push",
-    },
-})
-
-_, err = webhooks.RunWorker(context.Background(), "go-worker", 1)
-_ = webhooks.Replay(*result.EventID)
-_ = webhooks.Ignore(*result.EventID)
-```
-
-## Elixir
-
-Source: `packages/knocker-elixir`
-
-```elixir
-{:ok, opened} = KnockerSqlite.open("app.db")
-
-webhooks =
-  KnockerSqlite.register_handler(opened, "github", fn event, tx ->
-    # Assume this app-owned table already exists.
-    :ok = KnockerSqlite.Tx.exec(tx, "INSERT INTO handled_events (event_id) VALUES (#{event["id"]})")
-    IO.inspect(event["id"], label: "handled")
-  end)
-
-{:ok, _endpoint_id} =
-  KnockerSqlite.add_endpoint(webhooks, %{
-    name: "github",
-    path: "/webhooks/github",
-    provider: "github",
-    enabled: true
-  })
-
-{:ok, result} =
-  KnockerSqlite.receive(webhooks, %{
-    endpoint: "github",
-    provider: "github",
-    secrets: ["github-secret"],
-    body: ~s({"zen":"keep it logically awesome"}),
-    headers: %{
-      "X-Hub-Signature-256" => "sha256=...",
-      "X-GitHub-Delivery" => "delivery-1",
-      "X-GitHub-Event" => "push"
-    }
-  })
-
-1 = KnockerSqlite.run_worker(webhooks, "elixir-worker", %{max_jobs: 1})
-{:ok, _} = KnockerSqlite.replay(webhooks, result["event_id"])
-{:ok, :ignored} = KnockerSqlite.ignore(webhooks, result["event_id"])
-```
-
-## Testing
+## Tests
 
 Repo-level commands:
 

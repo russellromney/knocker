@@ -12,6 +12,7 @@
 - Added phase-011 throughput exploration scripts for handler cost, lifecycle cost, claim batching, mixed-load topology, writer-handle topology, lock contention, and JSON serialization cost.
 - Expanded the Node contract pressure-test client with shared-contract reads (`getDelivery`, `listDeliveriesForEvent`) plus a minimal lifecycle/recovery path (`claimOne`, `ack`, `replay`).
 - Added a curated provider pack for `shopify`, `slack`, `postmark`, `resend`, `paddle`, and `lemon-squeezy`, plus repo-owned metadata and binding-neutral conformance fixtures for every curated provider.
+- Expanded the curated provider catalog with `standard-webhooks`, `clerk`, `twilio`, `sendgrid`, `linear`, `meta`, `discord`, `zendesk`, `intercom`, `hubspot`, `token-header`, `bearer-token`, and `basic-auth`, with shared Rust/SQLite receive coverage and Python mirror fixtures.
 - Added minimal shared-contract bindings for Bun, Ruby, Go, and Elixir, each with its own runtime-level end-to-end smoke test alongside the existing Node binding.
 - Added `knocker_prune_audits` table with stable top-level columns plus `summary_json`, as part of the single supported Knocker schema.
 - Added `knocker_reset_event(...)` as a core UDF: low-level primitive that resets event status to `received`, `attempt_count` to `0`, clears `last_error` and `handled_at`, without validating source-event status or recording attempt history.
@@ -27,6 +28,7 @@
   - durable ingress-only: `5,000` events in `1.445s` (`3,460/s`, `0.289 ms/event`)
   - no-op-handler worker drain: `5,000` events in `1.836s` (`2,723/s`, `0.367 ms/event`)
 - The Python docs now explicitly recommend one long-lived `knocker.open(...)` per process for hot paths; multiple independent same-file opens remain supported but are documented as a degraded contention mode.
+- The README and docs now present Knocker as a loadable SQLite extension plus multi-runtime bindings instead of a Python-first package, and the binding reference documents the shared provider/worker/operator baseline.
 - The retention guide and Python API reference now document Honker-backed automated retention: multiple runners are safe on one SQLite file, while one process/instance should still own retention configuration.
 - Knocker now documents and tests SQLite-shaped crash/restart guarantees explicitly: committed transaction state survives reopen, never-committed state does not appear after reopen, and fresh post-crash operations continue to work.
 - The benchmark/evidence surface now distinguishes stable local baselines from heavier multi-handle contention probes; `bench/run_all_experiments.py` skips the degraded multi-handle experiments unless explicitly asked to include them.

@@ -1,6 +1,6 @@
 # knocker
 
-Python bindings for Knocker, an embeddable inbound webhook inbox on SQLite.
+Python package for Knocker, a loadable SQLite extension plus language bindings for durable webhook ingress.
 
 Knocker stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process or another process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
 
@@ -17,19 +17,18 @@ import knocker
 
 webhooks = knocker.open("app.db")
 
-webhooks.add_endpoint(
-    name="stripe",
+stripe = webhooks.endpoint(
+    "stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
 )
 
-@webhooks.handle(endpoint="stripe", event_type="checkout.session.completed")
+@stripe.handle("checkout.session.completed")
 def handle_checkout(event, tx):
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
 
-result = webhooks.receive(
-    endpoint="stripe",
+result = stripe.receive(
     body=raw_body_bytes,
     headers=headers,
     query=query_params,

@@ -1,0 +1,63 @@
+---
+title: Ruby binding
+description: Install and use Knocker from Ruby.
+---
+
+The Ruby binding loads Knocker's SQLite extension with `Fiddle` and exposes
+the shared receive, worker, operator, and retention contract.
+
+## Install
+
+The package is currently repo-local. Build the extension first:
+
+```bash
+cargo build --release -p knocker-extension
+```
+
+If Ruby cannot locate `libsqlite3`, set:
+
+```bash
+export KNOCKER_SQLITE3_LIB=/path/to/libsqlite3.dylib
+```
+
+Then require the binding from the package path:
+
+```ruby
+require_relative "./packages/knocker-ruby/lib/knocker_sqlite"
+```
+
+## Use
+
+```ruby
+webhooks = KnockerSqlite::Database.open("app.db")
+
+webhooks.add_endpoint(
+  name: "automation",
+  path: "/webhooks/automation",
+  provider: "token-header",
+  secrets: ["dev-secret"],
+)
+
+webhooks.register_handler("automation", event_type: "invoice.created") do |event, tx|
+  puts "handled #{event['id']}"
+end
+
+result = webhooks.receive(
+  endpoint: "automation",
+  body: "{\"id\":\"evt_1\",\"type\":\"invoice.created\"}",
+  headers: { "X-Knocker-Token" => "dev-secret" },
+)
+
+webhooks.run_worker(worker_id: "ruby-worker", max_jobs: 1)
+```
+
+`receive(...)` delegates provider verification to the Rust/SQLite
+`knocker_receive(...)` path. `run_worker(...)` runs handlers later against
+stored SQLite rows and rolls handler writes back before retry/dead-letter
+bookkeeping when the handler raises.
+
+## Test
+
+```bash
+make test-ruby
+```
