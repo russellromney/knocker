@@ -1,0 +1,19 @@
+{
+  "description": "Valid SendGrid ECDSA signature accepts and extracts the first event id/type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Twilio-Email-Event-Webhook-Timestamp": "1714000000",
+      "X-Twilio-Email-Event-Webhook-Signature": "MEQCIAVdFxNOz4tzDUJooctMiJ+FbkrtVX3rm36x8mMFXchmAiAW6+gM/CMFXZjGFXHGzW+zjWigjqB357iYW6GZ2P5kdQ=="
+    },
+    "query": {},
+    "body": "[{\"event\":\"delivered\",\"sg_event_id\":\"sg_event_123\",\"sg_message_id\":\"sg_message_123\"}]",
+    "secrets": ["-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUA2l62zz1fu8Ls72+1U6ekLoeO/U\nV9bRJtdJFtfrIs7rKOPx+X4wS7pW/oyhOu6ZuF6ZIB5sJ5pvYjYVsjmXdw==\n-----END PUBLIC KEY-----\n"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "sg_event_123",
+    "event_type": "delivered"
+  }
+}

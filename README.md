@@ -64,7 +64,7 @@ For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knoc
 
 - Store every inbound webhook receipt durably before returning provider success
 - Deduplicate provider retries into one event-level processing unit
-- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy, plus the legacy generic HMAC-SHA256 path
+- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, Lemon Squeezy, Standard Webhooks/Svix, Clerk, Twilio, SendGrid, Linear, Meta, Discord, Zendesk, Intercom, HubSpot, and middleman-friendly token/basic/bearer auth shapes
 - Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries
 - Run synchronous handlers later with retries, dead-lettering, replay, and requeue
 - Commit handler business writes atomically with Knocker's handled transition and queue ack

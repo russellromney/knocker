@@ -1,0 +1,7 @@
+{
+  "name": "hubspot",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "HubSpot v3 webhook verification using timestamped HMAC-SHA256 signatures over method, URL, body, and timestamp.",
+  "upstream_docs_url": "https://developers.hubspot.com/docs/guides/apps/authentication/working-with-oauth"
+}

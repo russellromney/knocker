@@ -1,0 +1,7 @@
+{
+  "name": "zendesk",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Zendesk webhook verification using timestamped HMAC-SHA256 signatures.",
+  "upstream_docs_url": "https://developer.zendesk.com/documentation/webhooks/anatomy-of-a-webhook-request/"
+}

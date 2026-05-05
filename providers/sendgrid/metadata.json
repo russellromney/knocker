@@ -1,0 +1,7 @@
+{
+  "name": "sendgrid",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "SendGrid Event Webhook verification using signed ECDSA payloads.",
+  "upstream_docs_url": "https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features"
+}

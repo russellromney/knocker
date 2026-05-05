@@ -3,7 +3,7 @@ name = "knocker-workspace"
 version = "0.1.0"
 description = "knocker development workspace"
 requires-python = ">=3.12"
-dependencies = ["honker"]
+dependencies = ["cryptography>=43", "honker"]
 
 [dependency-groups]
 dev = [

@@ -1,0 +1,19 @@
+{
+  "description": "Valid Linear signature accepts and extracts action plus data.id.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Linear-Signature": "1c89f907d40e44cd2a3d28ba99416afc52072ec0506558972d77c3e2fa24f5b4"
+    },
+    "query": {},
+    "body": "{\"action\":\"issue.created\",\"webhookTimestamp\":1714000000000,\"data\":{\"id\":\"issue_123\"}}",
+    "secrets": ["linear-secret"],
+    "provider_options": {"tolerance_s": 300},
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "issue_123",
+    "event_type": "issue.created"
+  }
+}

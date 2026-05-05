@@ -1,0 +1,24 @@
+{
+  "description": "Valid HubSpot v3 signature accepts and extracts event id plus subscription type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-HubSpot-Request-Timestamp": "1714000000000",
+      "X-HubSpot-Signature-v3": "f8UisXLZFzuqDuIp50Vuo9OXkry3nX3EtokDCVQ9X7w="
+    },
+    "query": {},
+    "body": "[{\"eventId\":123,\"subscriptionType\":\"contact.creation\",\"objectId\":456}]",
+    "secrets": ["hubspot-secret"],
+    "provider_options": {
+      "url": "https://example.com/webhooks/hubspot",
+      "method": "POST",
+      "tolerance_s": 300
+    },
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "123",
+    "event_type": "contact.creation"
+  }
+}

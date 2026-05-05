@@ -59,7 +59,10 @@ def handle_checkout(event, tx):
 
 `provider` accepts either a curated string name (`"stripe"`, `"github"`,
 `"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`,
-`"lemon-squeezy"`)
+`"lemon-squeezy"`, `"standard-webhooks"`, `"clerk"`, `"twilio"`,
+`"sendgrid"`, `"linear"`, `"meta"`, `"discord"`, `"zendesk"`,
+`"intercom"`, `"hubspot"`, `"token-header"`, `"bearer-token"`,
+`"basic-auth"`)
 or a `knocker.Provider` instance for app-local / community providers.
 Curated string names are reserved for built-ins; non-curated providers
 should pass an instance. Unknown string names raise `ValueError` at

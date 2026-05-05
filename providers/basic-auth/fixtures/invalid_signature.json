@@ -1,0 +1,18 @@
+{
+  "description": "Wrong basic auth secret rejects while preserving body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Basic d3Jvbmc="
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_basic_1\",\"type\":\"n8n.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "basic",
+    "provider_event_id": "evt_basic_1",
+    "event_type": "n8n.received"
+  }
+}

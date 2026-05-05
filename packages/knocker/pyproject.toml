@@ -5,10 +5,11 @@ build-backend = "maturin"
 [project]
 name = "knockerlite"
 version = "0.1.0"
-description = "Python-first inbound webhook inbox on SQLite"
+description = "Embeddable inbound webhook inbox on SQLite"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=43",
     "honker>=0.2.3,<0.3",
 ]
 license = "Apache-2.0"

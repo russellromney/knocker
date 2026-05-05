@@ -9,7 +9,7 @@
     },
     "query": {},
     "body": "{\"type\":\"email.delivered\",\"data\":{\"email_id\":\"email_123\"}}",
-    "secrets": ["whsec_resend"],
+    "secrets": ["whsec_cmVzZW5kLXNlY3JldA=="],
     "provider_options": {"tolerance_s": 300},
     "now_s": 1714000600
   },

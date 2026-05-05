@@ -17,8 +17,10 @@ registry. Across the product, provider support has three tiers:
 - **Curated built-in providers** ship in Knocker's shared provider set and
   have repo-owned conformance fixtures under `providers/<name>/`. Today:
   `stripe`, `github`, `shopify`, `slack`, `postmark`, `resend`, `paddle`,
-  and `lemon-squeezy`. The string `provider="..."` namespace is reserved for
-  these names across bindings.
+  `lemon-squeezy`, `standard-webhooks`, `clerk`, `twilio`, `sendgrid`,
+  `linear`, `meta`, `discord`, `zendesk`, `intercom`, `hubspot`,
+  `token-header`, `bearer-token`, and `basic-auth`. The string
+  `provider="..."` namespace is reserved for these names across bindings.
 - **App-local providers** live in your own code. Pass a `Provider` instance
   directly to `add_endpoint(provider=AcmeProvider(), ...)` — no global
   registration needed.
@@ -85,13 +87,39 @@ from the GitHub dashboard, so Knocker treats a redelivery of the same
 delivery id as a duplicate. To force reprocessing, use `webhooks.replay(...)` on
 the stored event instead.
 
+## Built-ins for webhook middlemen
+
+Zapier, Make, n8n, and similar tools often make it easy to send a secret
+header or Authorization value, but not to compute a provider-specific HMAC
+over the raw body. Knocker ships three simple curated providers for that
+shape:
+
+- `token-header`: compares a configurable header, defaulting to `X-Knocker-Token`
+- `bearer-token`: compares `Authorization: Bearer <secret>`
+- `basic-auth`: compares `Authorization: Basic <base64 secret>`
+
+```python
+zapier = webhooks.endpoint(
+    "zapier",
+    path="/webhooks/zapier",
+    provider="token-header",
+    secrets=["shared-secret"],
+)
+```
+
+Use `provider_options={"header": "x-my-secret"}` with `token-header` when
+your automation tool already has a fixed header name.
+
 ## App-local providers
 
 Implement the small `Provider` interface and pass your instance directly to
 `add_endpoint(...)`. Curated string names like `"stripe"`, `"github"`,
-`"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`, and
-`"lemon-squeezy"` are
-reserved for built-ins; non-curated providers should pass an instance.
+`"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`,
+`"lemon-squeezy"`, `"standard-webhooks"`, `"clerk"`, `"twilio"`,
+`"sendgrid"`, `"linear"`, `"meta"`, `"discord"`, `"zendesk"`,
+`"intercom"`, `"hubspot"`, `"token-header"`, `"bearer-token"`, and
+`"basic-auth"` are reserved for built-ins; non-curated providers should pass
+an instance.
 
 ```python
 import hmac

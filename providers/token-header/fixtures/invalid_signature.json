@@ -1,0 +1,18 @@
+{
+  "description": "Wrong token-header secret rejects while preserving body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Knocker-Token": "wrong"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_token_1\",\"type\":\"zap.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "token",
+    "provider_event_id": "evt_token_1",
+    "event_type": "zap.received"
+  }
+}

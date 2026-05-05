@@ -26,6 +26,21 @@ from knocker._builtin_resend import _ResendProvider
 from knocker._builtin_shopify import _ShopifyProvider
 from knocker._builtin_slack import _SlackProvider
 from knocker._builtin_stripe import _StripeProvider
+from knocker._builtin_more import (
+    _BasicAuthProvider,
+    _BearerTokenProvider,
+    _ClerkProvider,
+    _DiscordProvider,
+    _HubSpotProvider,
+    _IntercomProvider,
+    _LinearProvider,
+    _MetaProvider,
+    _SendGridProvider,
+    _StandardWebhooksProvider,
+    _TokenHeaderProvider,
+    _TwilioProvider,
+    _ZendeskProvider,
+)
 from knocker.providers import _coerce_provider_options
 
 
@@ -96,6 +111,56 @@ def _provider_for(name: str, fixture: dict[str, Any]) -> knocker.Provider:
         return _PaddleProvider(clock=lambda: frozen)
     if name == "lemon-squeezy":
         return _LemonSqueezyProvider()
+    if name == "standard-webhooks":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _StandardWebhooksProvider()
+        frozen = int(now_s)
+        return _StandardWebhooksProvider(clock=lambda: frozen)
+    if name == "clerk":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _ClerkProvider()
+        frozen = int(now_s)
+        return _ClerkProvider(clock=lambda: frozen)
+    if name == "twilio":
+        return _TwilioProvider()
+    if name == "sendgrid":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _SendGridProvider()
+        frozen = int(now_s)
+        return _SendGridProvider(clock=lambda: frozen)
+    if name == "linear":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _LinearProvider()
+        frozen = int(now_s)
+        return _LinearProvider(clock=lambda: frozen)
+    if name == "meta":
+        return _MetaProvider()
+    if name == "discord":
+        return _DiscordProvider()
+    if name == "zendesk":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _ZendeskProvider()
+        frozen = int(now_s)
+        return _ZendeskProvider(clock=lambda: frozen)
+    if name == "intercom":
+        return _IntercomProvider()
+    if name == "hubspot":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _HubSpotProvider()
+        frozen = int(now_s)
+        return _HubSpotProvider(clock=lambda: frozen)
+    if name == "token-header":
+        return _TokenHeaderProvider()
+    if name == "bearer-token":
+        return _BearerTokenProvider()
+    if name == "basic-auth":
+        return _BasicAuthProvider()
     raise ValueError(f"no curated python implementation for provider {name!r}")
 
 
@@ -153,6 +218,19 @@ def test_curated_fixture_conformance(provider_name):
         ("resend", _ResendProvider),
         ("paddle", _PaddleProvider),
         ("lemon-squeezy", _LemonSqueezyProvider),
+        ("standard-webhooks", _StandardWebhooksProvider),
+        ("clerk", _ClerkProvider),
+        ("twilio", _TwilioProvider),
+        ("sendgrid", _SendGridProvider),
+        ("linear", _LinearProvider),
+        ("meta", _MetaProvider),
+        ("discord", _DiscordProvider),
+        ("zendesk", _ZendeskProvider),
+        ("intercom", _IntercomProvider),
+        ("hubspot", _HubSpotProvider),
+        ("token-header", _TokenHeaderProvider),
+        ("bearer-token", _BearerTokenProvider),
+        ("basic-auth", _BasicAuthProvider),
     ],
 )
 def test_metadata_matches_python_implementation(provider_name, provider_cls):

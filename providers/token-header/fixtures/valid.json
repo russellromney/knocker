@@ -1,0 +1,17 @@
+{
+  "description": "Valid token-header receipt accepts with the default X-Knocker-Token header.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Knocker-Token": "middleman-secret"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_token_1\",\"type\":\"zap.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "evt_token_1",
+    "event_type": "zap.received"
+  }
+}

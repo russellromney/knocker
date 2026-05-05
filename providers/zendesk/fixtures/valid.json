@@ -1,0 +1,19 @@
+{
+  "description": "Valid Zendesk signature accepts and extracts ticket id plus event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Zendesk-Webhook-Signature-Timestamp": "1714000000",
+      "X-Zendesk-Webhook-Signature": "KhBtS/j3GuQDPiLGYfC6qKCpTsMaA/4XEug25z7H+M4="
+    },
+    "query": {},
+    "body": "{\"ticket_id\":\"ticket_123\",\"type\":\"ticket.updated\"}",
+    "secrets": ["zendesk-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "ticket_123",
+    "event_type": "ticket.updated"
+  }
+}

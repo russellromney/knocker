@@ -1,0 +1,19 @@
+{
+  "description": "Wrong Twilio signature rejects while preserving form metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Twilio-Signature": "bad"
+    },
+    "query": {},
+    "body": "CallSid=CA123&From=%2B15551234567&CallStatus=completed",
+    "secrets": ["twilio-token"],
+    "provider_options": {"url": "https://example.com/webhooks/twilio"}
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "provider_event_id": "CA123",
+    "event_type": "completed"
+  }
+}

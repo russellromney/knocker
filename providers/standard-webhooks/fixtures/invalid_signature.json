@@ -1,0 +1,22 @@
+{
+  "description": "Wrong Standard Webhooks secret rejects while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Webhook-Id": "msg_std_1",
+      "Webhook-Timestamp": "1714000000",
+      "Webhook-Signature": "v1,64Xkyfvy0mIRfxrsGaFBE7VGvC+MHv6/t+g9QFEEz0I="
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_std_1\",\"type\":\"automation.triggered\"}",
+    "secrets": ["whsec_c3RhbmRhcmQtc2VjcmV0"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "invalid standard-webhooks signature",
+    "provider_delivery_id": "msg_std_1",
+    "provider_event_id": "evt_std_1",
+    "event_type": "automation.triggered"
+  }
+}

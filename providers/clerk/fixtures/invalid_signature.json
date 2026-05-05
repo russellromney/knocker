@@ -1,0 +1,22 @@
+{
+  "description": "Wrong Clerk/Svix signature rejects while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "svix-id": "msg_clerk_1",
+      "svix-timestamp": "1714000000",
+      "svix-signature": "v1,NEd8RZpLZ2s0kB1i8rPLiTf102fYkXKupZTNp/22tTY="
+    },
+    "query": {},
+    "body": "{\"type\":\"user.created\",\"data\":{\"id\":\"user_123\"}}",
+    "secrets": ["whsec_Y2xlcmstc2VjcmV0"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "invalid clerk signature",
+    "provider_delivery_id": "msg_clerk_1",
+    "provider_event_id": "user_123",
+    "event_type": "user.created"
+  }
+}

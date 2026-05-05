@@ -1,0 +1,7 @@
+{
+  "name": "bearer-token",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Middleman-friendly shared-secret verification using Authorization: Bearer.",
+  "upstream_docs_url": "https://knocker.dev/guides/verified-ingress/"
+}

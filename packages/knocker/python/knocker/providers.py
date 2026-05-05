@@ -181,6 +181,21 @@ def _builtin_providers() -> tuple[Provider, ...]:
     from knocker._builtin_resend import _ResendProvider
     from knocker._builtin_paddle import _PaddleProvider
     from knocker._builtin_lemonsqueezy import _LemonSqueezyProvider
+    from knocker._builtin_more import (
+        _BasicAuthProvider,
+        _BearerTokenProvider,
+        _ClerkProvider,
+        _DiscordProvider,
+        _HubSpotProvider,
+        _IntercomProvider,
+        _LinearProvider,
+        _MetaProvider,
+        _SendGridProvider,
+        _StandardWebhooksProvider,
+        _TokenHeaderProvider,
+        _TwilioProvider,
+        _ZendeskProvider,
+    )
 
     return (
         _StripeProvider(),
@@ -191,6 +206,19 @@ def _builtin_providers() -> tuple[Provider, ...]:
         _ResendProvider(),
         _PaddleProvider(),
         _LemonSqueezyProvider(),
+        _StandardWebhooksProvider(),
+        _ClerkProvider(),
+        _TwilioProvider(),
+        _SendGridProvider(),
+        _LinearProvider(),
+        _MetaProvider(),
+        _DiscordProvider(),
+        _ZendeskProvider(),
+        _IntercomProvider(),
+        _HubSpotProvider(),
+        _TokenHeaderProvider(),
+        _BearerTokenProvider(),
+        _BasicAuthProvider(),
     )
 
 
@@ -207,6 +235,19 @@ def _builtin_provider_names() -> frozenset[str]:
             "resend",
             "paddle",
             "lemon-squeezy",
+            "standard-webhooks",
+            "clerk",
+            "twilio",
+            "sendgrid",
+            "linear",
+            "meta",
+            "discord",
+            "zendesk",
+            "intercom",
+            "hubspot",
+            "token-header",
+            "bearer-token",
+            "basic-auth",
         }
     )
 

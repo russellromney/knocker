@@ -1,0 +1,20 @@
+{
+  "description": "Wrong Linear signature rejects while preserving body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Linear-Signature": "bad"
+    },
+    "query": {},
+    "body": "{\"action\":\"issue.created\",\"webhookTimestamp\":1714000000000,\"data\":{\"id\":\"issue_123\"}}",
+    "secrets": ["linear-secret"],
+    "provider_options": {"tolerance_s": 300},
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "provider_event_id": "issue_123",
+    "event_type": "issue.created"
+  }
+}

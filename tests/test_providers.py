@@ -23,6 +23,19 @@ _CURATED_PROVIDER_NAMES = {
     "resend",
     "paddle",
     "lemon-squeezy",
+    "standard-webhooks",
+    "clerk",
+    "twilio",
+    "sendgrid",
+    "linear",
+    "meta",
+    "discord",
+    "zendesk",
+    "intercom",
+    "hubspot",
+    "token-header",
+    "bearer-token",
+    "basic-auth",
 }
 
 
@@ -696,16 +709,7 @@ async def test_curated_provider_valid_fixture_flows_through_receive(db_path, pro
 
 @pytest.mark.parametrize(
     "provider_name,fixture_id",
-    [
-        ("stripe", "invalid_signature"),
-        ("github", "invalid_signature"),
-        ("shopify", "invalid_signature"),
-        ("slack", "invalid_signature"),
-        ("postmark", "invalid_signature"),
-        ("resend", "invalid_signature"),
-        ("paddle", "invalid_signature"),
-        ("lemon-squeezy", "invalid_signature"),
-    ],
+    [(name, "invalid_signature") for name in sorted(_CURATED_PROVIDER_NAMES)],
 )
 async def test_curated_provider_invalid_fixture_becomes_orphan_delivery(
     db_path, provider_name, fixture_id

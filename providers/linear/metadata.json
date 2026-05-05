@@ -1,0 +1,7 @@
+{
+  "name": "linear",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Linear webhook verification using Linear-Signature as an HMAC-SHA256 digest over the raw body.",
+  "upstream_docs_url": "https://linear.app/developers/webhooks"
+}

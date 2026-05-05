@@ -1,0 +1,7 @@
+{
+  "name": "token-header",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Middleman-friendly shared-secret verification by comparing a configurable request header to configured secrets.",
+  "upstream_docs_url": "https://knocker.dev/guides/verified-ingress/"
+}

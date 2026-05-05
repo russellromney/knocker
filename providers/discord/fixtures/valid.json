@@ -1,0 +1,18 @@
+{
+  "description": "Valid Discord Ed25519 signature accepts and extracts interaction id/type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Signature-Timestamp": "1714000000",
+      "X-Signature-Ed25519": "3b99406ef763d62ec1d4cfbd0f8bbe77317ca0c4d4d8a1f7ecd12ed43842d786e5322d3448858e69fdb8d42a7c61ef6f029a39f2183a1a9541f57ee2c685800e"
+    },
+    "query": {},
+    "body": "{\"type\":1,\"id\":\"interaction_123\"}",
+    "secrets": ["c02bc16a009de1f9f9f8f75c71a61bda30844752e7e8b5998f9dd23eb99e977f"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "interaction_123",
+    "event_type": "1"
+  }
+}

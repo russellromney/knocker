@@ -1,0 +1,16 @@
+{
+  "description": "Valid Meta signature accepts and extracts object as the event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature-256": "sha256=7206c0fc7bc22b7abb9199847f7f44f164b7a8b8454e1dbe806afb612b244aab"
+    },
+    "query": {},
+    "body": "{\"object\":\"instagram\",\"entry\":[{\"id\":\"entry_123\"}]}",
+    "secrets": ["meta-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "event_type": "instagram"
+  }
+}

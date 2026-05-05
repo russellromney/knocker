@@ -1,0 +1,7 @@
+{
+  "name": "discord",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Discord interaction webhook verification using Ed25519 request signatures.",
+  "upstream_docs_url": "https://docs.discord.com/developers/docs/interactions/receiving-and-responding#security-and-authorization"
+}

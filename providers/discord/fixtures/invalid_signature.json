@@ -1,0 +1,19 @@
+{
+  "description": "Wrong Discord Ed25519 signature rejects while preserving body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Signature-Timestamp": "1714000000",
+      "X-Signature-Ed25519": "bad"
+    },
+    "query": {},
+    "body": "{\"type\":1,\"id\":\"interaction_123\"}",
+    "secrets": ["c02bc16a009de1f9f9f8f75c71a61bda30844752e7e8b5998f9dd23eb99e977f"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "provider_event_id": "interaction_123",
+    "event_type": "1"
+  }
+}

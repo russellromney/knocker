@@ -1,0 +1,18 @@
+{
+  "description": "Wrong Intercom signature rejects while preserving notification metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature": "sha1=bad"
+    },
+    "query": {},
+    "body": "{\"type\":\"notification_event\",\"id\":\"notif_123\",\"topic\":\"user.created\"}",
+    "secrets": ["intercom-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "provider_event_id": "notif_123",
+    "event_type": "user.created"
+  }
+}

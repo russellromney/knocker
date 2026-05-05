@@ -1,0 +1,17 @@
+{
+  "description": "Valid basic auth accepts and extracts id/type from the body.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Basic bWlkZGxlbWFuLXNlY3JldA=="
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_basic_1\",\"type\":\"n8n.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "evt_basic_1",
+    "event_type": "n8n.received"
+  }
+}

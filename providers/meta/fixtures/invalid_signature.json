@@ -1,0 +1,17 @@
+{
+  "description": "Wrong Meta signature rejects while preserving object metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature-256": "sha256=bad"
+    },
+    "query": {},
+    "body": "{\"object\":\"instagram\",\"entry\":[{\"id\":\"entry_123\"}]}",
+    "secrets": ["meta-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "event_type": "instagram"
+  }
+}

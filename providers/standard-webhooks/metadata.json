@@ -1,0 +1,7 @@
+{
+  "name": "standard-webhooks",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Standard Webhooks/Svix-compatible verification using webhook id, timestamp, and v1 HMAC signatures over id.timestamp.body.",
+  "upstream_docs_url": "https://www.standardwebhooks.com/"
+}

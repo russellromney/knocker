@@ -1,0 +1,20 @@
+{
+  "description": "Wrong Zendesk signature rejects while preserving metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Zendesk-Webhook-Signature-Timestamp": "1714000000",
+      "X-Zendesk-Webhook-Signature": "bad"
+    },
+    "query": {},
+    "body": "{\"ticket_id\":\"ticket_123\",\"type\":\"ticket.updated\"}",
+    "secrets": ["zendesk-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "signature",
+    "provider_event_id": "ticket_123",
+    "event_type": "ticket.updated"
+  }
+}

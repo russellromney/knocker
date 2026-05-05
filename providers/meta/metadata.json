@@ -1,0 +1,7 @@
+{
+  "name": "meta",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Meta/Facebook webhook verification using X-Hub-Signature-256 over the raw body.",
+  "upstream_docs_url": "https://developers.facebook.com/docs/graph-api/webhooks/getting-started"
+}

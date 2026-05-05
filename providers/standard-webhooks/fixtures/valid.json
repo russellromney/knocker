@@ -1,0 +1,21 @@
+{
+  "description": "Valid Standard Webhooks signature accepts and extracts id/type from the body.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Webhook-Id": "msg_std_1",
+      "Webhook-Timestamp": "1714000000",
+      "Webhook-Signature": "v1,PdqnDCoaja00btmGXv13D/zfkDNIO6OlxbMxcBpZihw="
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_std_1\",\"type\":\"automation.triggered\"}",
+    "secrets": ["whsec_c3RhbmRhcmQtc2VjcmV0"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_delivery_id": "msg_std_1",
+    "provider_event_id": "evt_std_1",
+    "event_type": "automation.triggered"
+  }
+}

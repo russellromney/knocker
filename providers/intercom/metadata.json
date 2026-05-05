@@ -1,0 +1,7 @@
+{
+  "name": "intercom",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Intercom webhook verification using X-Hub-Signature as an HMAC-SHA1 digest over the raw body.",
+  "upstream_docs_url": "https://developers.intercom.com/docs/references/2.1/webhooks/webhook-models"
+}

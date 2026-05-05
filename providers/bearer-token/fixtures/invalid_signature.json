@@ -1,0 +1,18 @@
+{
+  "description": "Wrong bearer token rejects while preserving body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer wrong"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_bearer_1\",\"type\":\"make.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "bearer",
+    "provider_event_id": "evt_bearer_1",
+    "event_type": "make.received"
+  }
+}

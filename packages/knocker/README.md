@@ -43,7 +43,7 @@ Knocker intentionally does not ship framework adapters. Host apps own routes, re
 ## What you can use it for
 
 - Durable receipt storage before provider success
-- Curated verification for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy, plus the legacy generic HMAC-SHA256 path
+- Curated verification for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, Lemon Squeezy, Standard Webhooks/Svix, Clerk, Twilio, SendGrid, Linear, Meta, Discord, Zendesk, Intercom, HubSpot, and middleman-friendly token/basic/bearer auth shapes
 - Deduped event processing over append-only delivery rows
 - Event-level retries, dead-lettering, replay, requeue, and explicit delivery replay
 - Operator reads for events, deliveries, worker state, and prune audits

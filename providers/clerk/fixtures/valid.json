@@ -1,0 +1,21 @@
+{
+  "description": "Valid Clerk/Svix signature accepts and extracts delivery id, object id, and event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "svix-id": "msg_clerk_1",
+      "svix-timestamp": "1714000000",
+      "svix-signature": "v1,e3bdNRLee10GPhaSuSK79nnLZpjThMx8MnmIONbsNGU="
+    },
+    "query": {},
+    "body": "{\"type\":\"user.created\",\"data\":{\"id\":\"user_123\"}}",
+    "secrets": ["whsec_Y2xlcmstc2VjcmV0"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_delivery_id": "msg_clerk_1",
+    "provider_event_id": "user_123",
+    "event_type": "user.created"
+  }
+}

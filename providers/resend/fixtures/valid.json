@@ -5,11 +5,11 @@
     "headers": {
       "svix-id": "msg_123",
       "svix-timestamp": "1714000000",
-      "svix-signature": "v1,6GhjgIcF+AjokOpMQ0k7yjUejNuhG+J96PHvlihnkWU="
+      "svix-signature": "v1,sB16IKyMuHUt6kDLoFhDMn9M7PYRKFcxJb1rh9u5s3Q="
     },
     "query": {},
     "body": "{\"type\":\"email.delivered\",\"data\":{\"email_id\":\"email_123\"}}",
-    "secrets": ["whsec_resend"],
+    "secrets": ["whsec_cmVzZW5kLXNlY3JldA=="],
     "now_s": 1714000000
   },
   "expected": {

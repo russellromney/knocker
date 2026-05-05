@@ -1155,6 +1155,19 @@ mod tests {
             "resend",
             "paddle",
             "lemon-squeezy",
+            "standard-webhooks",
+            "clerk",
+            "twilio",
+            "sendgrid",
+            "linear",
+            "meta",
+            "discord",
+            "zendesk",
+            "intercom",
+            "hubspot",
+            "token-header",
+            "bearer-token",
+            "basic-auth",
         ];
 
         for provider in providers {

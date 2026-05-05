@@ -1,0 +1,7 @@
+{
+  "name": "clerk",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Clerk webhook verification via the Svix/Standard Webhooks signature scheme.",
+  "upstream_docs_url": "https://clerk.com/docs/webhooks/overview"
+}

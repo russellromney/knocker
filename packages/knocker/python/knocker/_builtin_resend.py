@@ -90,7 +90,9 @@ class _ResendProvider(Provider):
         signed_payload = f"{delivery_id}.{timestamp}.".encode("utf-8") + request.body
         candidates = [part.strip() for part in signature.split() if part.strip()]
         for secret in secrets:
-            secret_bytes = secret[6:] if secret.startswith(b"whsec_") else secret
+            secret_bytes = _svix_secret_bytes(secret)
+            if secret_bytes is None:
+                continue
             expected = base64.b64encode(
                 hmac.new(secret_bytes, signed_payload, hashlib.sha256).digest()
             ).decode("utf-8")
@@ -108,3 +110,19 @@ class _ResendProvider(Provider):
             provider_event_id=provider_event_id,
             event_type=event_type,
         )
+
+
+def _svix_secret_bytes(secret: bytes) -> Optional[bytes]:
+    prefix = b"whsec_"
+    if not secret.startswith(prefix):
+        return secret
+    encoded = secret[len(prefix):]
+    for candidate in (
+        encoded,
+        encoded + b"=" * (-len(encoded) % 4),
+    ):
+        try:
+            return base64.b64decode(candidate, validate=True)
+        except ValueError:
+            continue
+    return None

@@ -3,6 +3,7 @@ defmodule KnockerSqliteTest do
 
   test "elixir binding runs the minimal shared-contract flow" do
     db_dir = Path.join(System.tmp_dir!(), "knocker-elixir-#{System.unique_integer([:positive])}")
+    File.rm_rf!(db_dir)
     File.mkdir_p!(db_dir)
     db_path = Path.join(db_dir, "app.db")
 
@@ -76,6 +77,7 @@ defmodule KnockerSqliteTest do
 
   test "elixir binding exposes operator parity helpers" do
     db_dir = Path.join(System.tmp_dir!(), "knocker-elixir-#{System.unique_integer([:positive])}")
+    File.rm_rf!(db_dir)
     File.mkdir_p!(db_dir)
     db_path = Path.join(db_dir, "app.db")
 
@@ -181,6 +183,7 @@ defmodule KnockerSqliteTest do
 
   test "elixir binding proves failure rollback, typed dispatch, receive, worker loop, and retention" do
     db_dir = Path.join(System.tmp_dir!(), "knocker-elixir-#{System.unique_integer([:positive])}")
+    File.rm_rf!(db_dir)
     File.mkdir_p!(db_dir)
     db_path = Path.join(db_dir, "app.db")
 

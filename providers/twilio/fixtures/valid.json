@@ -1,0 +1,18 @@
+{
+  "description": "Valid Twilio form webhook signature accepts and extracts CallSid plus status.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Twilio-Signature": "izET0MKDPSwlmSbPg/ondueCyIw="
+    },
+    "query": {},
+    "body": "CallSid=CA123&From=%2B15551234567&CallStatus=completed",
+    "secrets": ["twilio-token"],
+    "provider_options": {"url": "https://example.com/webhooks/twilio"}
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "CA123",
+    "event_type": "completed"
+  }
+}

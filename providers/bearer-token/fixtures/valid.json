@@ -1,0 +1,17 @@
+{
+  "description": "Valid bearer token accepts and extracts id/type from the body.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer middleman-secret"
+    },
+    "query": {},
+    "body": "{\"id\":\"evt_bearer_1\",\"type\":\"make.received\"}",
+    "secrets": ["middleman-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "evt_bearer_1",
+    "event_type": "make.received"
+  }
+}

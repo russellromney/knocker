@@ -1,0 +1,17 @@
+{
+  "description": "Valid Intercom signature accepts and extracts notification id plus topic.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Hub-Signature": "sha1=9ba8ee8f133b99cd4c6b09511e07951aab6531e2"
+    },
+    "query": {},
+    "body": "{\"type\":\"notification_event\",\"id\":\"notif_123\",\"topic\":\"user.created\"}",
+    "secrets": ["intercom-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "notif_123",
+    "event_type": "user.created"
+  }
+}
