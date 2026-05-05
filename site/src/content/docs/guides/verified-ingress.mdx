@@ -40,8 +40,8 @@ Curating a new provider goes through the
 ## Built-in: Stripe
 
 ```python
-app.add_endpoint(
-    name="stripe",
+stripe = app.endpoint(
+    "stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_old", "whsec_new"],
@@ -63,8 +63,8 @@ endpoint registration time so typos do not silently no-op.
 ## Built-in: GitHub
 
 ```python
-app.add_endpoint(
-    name="github",
+github = app.endpoint(
+    "github",
     path="/webhooks/github",
     provider="github",
     secrets=["github-webhook-secret"],

@@ -57,6 +57,95 @@ from knocker.verifiers import (
 _UNSET = object()
 
 
+class Endpoint:
+    """Endpoint-local helper for registration, ingress, and handler wiring.
+
+    Instances are returned by ``Knocker.endpoint(...)`` after registering or
+    updating the endpoint. They keep the endpoint name local so host apps can
+    write clearer code like ``stripe.receive(...)`` and
+    ``@stripe.handle(...)`` without repeating the endpoint string.
+    """
+
+    def __init__(self, app: "Knocker", name: str):
+        self._app = app
+        self.name = name
+
+    def add_handler(
+        self,
+        handler: Handler,
+        *,
+        event_type: Optional[str] = None,
+    ) -> None:
+        """Register a synchronous ``handler(event, tx)`` for this endpoint."""
+
+        self._app.add_handler(endpoint=self.name, event_type=event_type, handler=handler)
+
+    def handle(self, event_type: Optional[str] = None):
+        """Decorate a synchronous ``handler(event, tx)`` for this endpoint."""
+
+        def decorate(fn: Handler) -> Handler:
+            self.add_handler(fn, event_type=event_type)
+            return fn
+
+        return decorate
+
+    def receive(
+        self,
+        *,
+        body: bytes,
+        headers: Optional[dict[str, Any]] = None,
+        query: Optional[dict[str, Any]] = None,
+        method: str = "POST",
+        event_type: Optional[str] = None,
+        provider_event_id: Optional[str] = None,
+        provider_delivery_id: Optional[str] = None,
+        dedupe_key: Optional[str] = None,
+    ) -> IngestResult:
+        """Verify and ingest one request for this endpoint."""
+
+        return self._app.receive(
+            endpoint=self.name,
+            body=body,
+            headers=headers,
+            query=query,
+            method=method,
+            event_type=event_type,
+            provider_event_id=provider_event_id,
+            provider_delivery_id=provider_delivery_id,
+            dedupe_key=dedupe_key,
+        )
+
+    def ingest(
+        self,
+        *,
+        body: bytes,
+        headers: Optional[dict[str, Any]] = None,
+        query: Optional[dict[str, Any]] = None,
+        method: str = "POST",
+        event_type: Optional[str] = None,
+        provider_event_id: Optional[str] = None,
+        provider_delivery_id: Optional[str] = None,
+        dedupe_key: Optional[str] = None,
+        signature_valid: Optional[bool] = True,
+        signature_error: Optional[str] = None,
+    ) -> IngestResult:
+        """Store one trusted low-level delivery for this endpoint."""
+
+        return self._app.ingest(
+            endpoint=self.name,
+            body=body,
+            headers=headers,
+            query=query,
+            method=method,
+            event_type=event_type,
+            provider_event_id=provider_event_id,
+            provider_delivery_id=provider_delivery_id,
+            dedupe_key=dedupe_key,
+            signature_valid=signature_valid,
+            signature_error=signature_error,
+        )
+
+
 class Knocker:
     """Embeddable webhook inbox backed by SQLite and Honker.
 
@@ -178,6 +267,34 @@ class Knocker:
                 [name, path, stored_provider_tag, 1 if enabled else 0],
             )
         self._endpoint_configs[name] = config
+
+    def endpoint(
+        self,
+        name: str,
+        *,
+        path: str,
+        provider: Any = None,
+        enabled: bool = True,
+        verification: Any = _UNSET,
+        delivery_key: Any = _UNSET,
+        event_key: Any = _UNSET,
+        secrets: Any = _UNSET,
+        provider_options: Any = _UNSET,
+    ) -> Endpoint:
+        """Register or update an endpoint and return an endpoint-local helper."""
+
+        self.add_endpoint(
+            name=name,
+            path=path,
+            provider=provider,
+            enabled=enabled,
+            verification=verification,
+            delivery_key=delivery_key,
+            event_key=event_key,
+            secrets=secrets,
+            provider_options=provider_options,
+        )
+        return Endpoint(self, name)
 
     def add_handler(
         self,

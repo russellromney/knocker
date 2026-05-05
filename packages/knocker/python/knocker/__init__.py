@@ -1,4 +1,4 @@
-from ._knocker import Knocker, open
+from ._knocker import Endpoint, Knocker, open
 from .models import (
     Delivery,
     Event,
@@ -13,6 +13,7 @@ from .providers import Provider, ProviderRequest, ProviderResult
 
 __all__ = [
     "Delivery",
+    "Endpoint",
     "Event",
     "IngestResult",
     "Knocker",

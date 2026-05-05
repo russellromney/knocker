@@ -3,7 +3,7 @@ title: Python API
 description: Stable public Knocker surface in Python today.
 ---
 
-The current public surface is Python-first.
+The current public surface is richest in Python.
 
 Published package name: `knockerlite`. Python import name: `knocker`.
 
@@ -25,6 +25,24 @@ handles against the same SQLite file is supported, but it is a degraded
 contention mode rather than the normal performance posture.
 
 ## Endpoint and handler registration
+
+Simpler endpoint-local shape:
+
+```python
+stripe = app.endpoint(
+    "stripe",
+    path="/webhooks/stripe",
+    provider="stripe",
+    secrets=["whsec_123"],
+    provider_options={"tolerance_s": 300},
+)
+
+@stripe.handle("checkout.session.completed")
+def handle_checkout(event, tx):
+    ...
+```
+
+Equivalent explicit shape:
 
 ```python
 app.add_endpoint(
@@ -111,8 +129,7 @@ Handlers receive `(event, tx)`. Business writes through `tx` commit atomically w
 ## Ingress
 
 ```python
-result = app.receive(
-    endpoint="stripe",
+result = stripe.receive(
     body=b"...",
     headers={"stripe-signature": "..."},
 )

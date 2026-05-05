@@ -14,15 +14,43 @@ from tests.helpers import (
 )
 
 
-async def test_endpoint_alias_is_removed_before_public_release(db_path):
+async def test_endpoint_helper_registers_endpoint_handler_and_receive_flow(db_path):
     app = knocker.open(db_path)
-    assert not hasattr(app, "endpoint")
+    stop_event = asyncio.Event()
+    stripe = app.endpoint(
+        "stripe",
+        path="/webhooks/stripe",
+        provider="stripe",
+        secrets=["whsec_123"],
+    )
+
+    seen = []
+
+    @stripe.handle("checkout.session.completed")
+    def handle_checkout(event, tx):
+        seen.append(event.id)
+        tx.query("CREATE TABLE IF NOT EXISTS handled_events (event_id INTEGER)")
+        tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
+        stop_event.set()
+
+    result = stripe.receive(
+        body=b'{"id":"evt_1","type":"checkout.session.completed"}',
+        headers={"stripe-signature": _stripe_signature("whsec_123", b'{"id":"evt_1","type":"checkout.session.completed"}')},
+        query={},
+    )
+
+    event_id = _require_event_id(result)
+    await asyncio.wait_for(app.run_worker(stop_event=stop_event), timeout=0.5)
+    assert seen == [event_id]
+    rows = app.db.query("SELECT event_id FROM handled_events")
+    assert rows == [{"event_id": event_id}]
 
 async def test_supported_python_surface_has_docstrings(db_path):
     public_objects = [
         knocker.IngestResult,
         knocker.Event,
         knocker.Delivery,
+        knocker.Endpoint,
         knocker.PruneAudit,
         knocker.PruneEventsResult,
         knocker.PruneDeliveriesResult,
@@ -33,6 +61,7 @@ async def test_supported_python_surface_has_docstrings(db_path):
     ]
     public_methods = [
         "add_endpoint",
+        "endpoint",
         "add_handler",
         "handle",
         "ingest",

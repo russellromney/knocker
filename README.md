@@ -2,11 +2,13 @@
   <img src="./logo-transparent.png" alt="" width="180" /><br/>knocker
 </h1>
 
-`knocker` is a Python-first inbound webhook inbox on SQLite. It stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
+`knocker` is an embeddable inbound webhook inbox on SQLite. It stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
+
+Knocker's durable semantics live in shared Rust/SQLite code. Today the richest operator and app-facing surface is the Python binding, and the repo also ships thin runtime bindings over the same shared SQLite contract for Node, Bun, Ruby, Go, and Elixir.
 
 Knocker is for apps that already have an HTTP server, a SQLite database, and local business logic. It is not a hosted webhook relay, not a broker, and not a framework adapter package.
 
-Published package name: `knockerlite`. Python import name: `knocker`.
+Published Python package name: `knockerlite`. Python import name: `knocker`.
 
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
 
@@ -15,6 +17,8 @@ Knocker takes the approach that if SQLite is already your app database, webhook 
 Docs live at [knocker.dev](https://knocker.dev).
 
 ## At a glance
+
+Python quickstart:
 
 ```bash
 pip install knockerlite
@@ -25,34 +29,38 @@ import asyncio
 import knocker
 
 app = knocker.open("app.db")
-
-app.add_endpoint(
-    name="stripe",
+stripe = app.endpoint(
+    "stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
 )
 
-@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+@stripe.handle("checkout.session.completed")
 def handle_checkout(event, tx):
     # Business writes through tx commit atomically with Knocker's handled
     # transition and queue ack.
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
-
-def webhook_route(raw_body_bytes, headers, query_params):
-    result = app.receive(
-        endpoint="stripe",
-        body=raw_body_bytes,
-        headers=headers,
-        query=query_params,
-    )
-    # Return an HTTP response with this status using your framework.
-    return response_with_status(result.status_code)
-
-# Run app.run_worker(...) as a background task in your async app.
 ```
 
-`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome.
+```python
+result = stripe.receive(
+    body=raw_body_bytes,
+    headers=headers,
+    query=query_params,
+)
+
+# Return an HTTP response with this status using your framework.
+return response_with_status(result.status_code)
+```
+
+```python
+await app.run_worker()
+```
+
+`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `app.endpoint(...)` is the simpler endpoint-local helper; `add_endpoint(...)` and `@app.handle(...)` remain available when you prefer the more explicit shape.
+
+If you want the thin SQLite bindings instead of the richer Python API, see [SQLite bindings](https://knocker.dev/reference/sqlite-bindings/).
 
 ## What you can use it for
 
@@ -64,6 +72,7 @@ def webhook_route(raw_body_bytes, headers, query_params):
 - Commit handler business writes atomically with Knocker's handled transition and queue ack
 - Inspect events and deliveries from Python before building app-specific admin routes
 - Prune handled, ignored, and orphan-delivery rows explicitly when you choose
+- Run retention automation against the same SQLite file with core-owned prune semantics and Honker-backed recurrence
 
 ## One route
 
@@ -86,6 +95,8 @@ async def stripe_webhook(request: Request):
 See [Framework integration](https://knocker.dev/guides/framework-integration/) for FastAPI, Starlette, Flask, and generic route recipes.
 
 ## Operator surface
+
+The richest operator surface today is Python:
 
 ```python
 events = app.list_events(endpoint="stripe", since=1700000000, limit=50)
@@ -114,18 +125,18 @@ See the [Operator runbook](https://knocker.dev/guides/operator-runbook/) for the
 - Generic queue API; Honker owns that layer
 - Operator API server or HTML admin
 - Exactly-once side effects
-- Automatic retention jobs
+- Full operator-surface parity across every non-Python binding
 
 ## Repo layout
 
 - `knocker-core/`: Rust core for Knocker-owned SQLite semantics
 - `knocker-extension/`: loadable SQLite extension for cross-language contract testing
-- `packages/knocker/`: Python binding
-- `packages/knocker-node/`: minimal Node binding over the shared SQLite contract
-- `packages/knocker-bun/`: minimal Bun binding over the shared SQLite contract
-- `packages/knocker-ruby/`: minimal Ruby binding over the shared SQLite contract
-- `packages/knocker-go/`: minimal Go binding over the shared SQLite contract
-- `packages/knocker-elixir/`: minimal Elixir binding over the shared SQLite contract
+- `packages/knocker/`: richest Python binding and operator surface
+- `packages/knocker-node/`: thin Node binding over the shared SQLite contract
+- `packages/knocker-bun/`: thin Bun binding over the shared SQLite contract
+- `packages/knocker-ruby/`: thin Ruby binding over the shared SQLite contract
+- `packages/knocker-go/`: thin Go binding over the shared SQLite contract
+- `packages/knocker-elixir/`: thin Elixir binding over the shared SQLite contract
 - `site/`: Astro/Starlight docs site for `knocker.dev`
 - `SYSTEM.md`: current English model of the system
 - `.intent/phases/`: spec diffs, plans, reviews, and commit records
