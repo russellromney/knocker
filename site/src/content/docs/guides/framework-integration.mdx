@@ -32,6 +32,23 @@ verification outcome.
 ## Route Examples
 
 <Tabs>
+  <TabItem label="Python">
+
+```python
+from fastapi import Request, Response
+
+@api.post("/webhooks/provider")
+async def provider_webhook(request: Request):
+    result = webhooks.receive(
+        endpoint="provider",
+        body=await request.body(),
+        headers=dict(request.headers),
+        query=dict(request.query_params),
+    )
+    return Response(status_code=result.status_code)
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts
@@ -121,23 +138,6 @@ app.post("/webhooks/provider", express.raw({ type: "*/*" }), (req, res) => {
 
   res.sendStatus(result.status_code);
 });
-```
-
-  </TabItem>
-  <TabItem label="Python">
-
-```python
-from fastapi import Request, Response
-
-@api.post("/webhooks/provider")
-async def provider_webhook(request: Request):
-    result = webhooks.receive(
-        endpoint="provider",
-        body=await request.body(),
-        headers=dict(request.headers),
-        query=dict(request.query_params),
-    )
-    return Response(status_code=result.status_code)
 ```
 
   </TabItem>

@@ -43,6 +43,37 @@ before Knocker records retry/dead-letter state.
 ## Minimal Example
 
 <Tabs>
+  <TabItem label="Python">
+
+```python
+import asyncio
+import knocker
+
+webhooks = knocker.open("app.db")
+automation = webhooks.endpoint(
+    "automation",
+    path="/webhooks/automation",
+    provider="token-header",
+    secrets=["dev-secret"],
+)
+
+@automation.handle("invoice.created")
+def handle_invoice(event, tx):
+    print("handled", event.id)
+
+result = automation.receive(
+    body=b'{"id":"evt_1","type":"invoice.created"}',
+    headers={"X-Knocker-Token": "dev-secret"},
+)
+
+stop = asyncio.Event()
+worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
+await asyncio.sleep(0.1)
+stop.set()
+await worker
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts
@@ -166,37 +197,6 @@ const result = webhooks.receive({
 });
 
 await webhooks.runWorker({ workerId: "node-worker", maxJobs: 1 });
-```
-
-  </TabItem>
-  <TabItem label="Python">
-
-```python
-import asyncio
-import knocker
-
-webhooks = knocker.open("app.db")
-automation = webhooks.endpoint(
-    "automation",
-    path="/webhooks/automation",
-    provider="token-header",
-    secrets=["dev-secret"],
-)
-
-@automation.handle("invoice.created")
-def handle_invoice(event, tx):
-    print("handled", event.id)
-
-result = automation.receive(
-    body=b'{"id":"evt_1","type":"invoice.created"}',
-    headers={"X-Knocker-Token": "dev-secret"},
-)
-
-stop = asyncio.Event()
-worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
-await asyncio.sleep(0.1)
-stop.set()
-await worker
 ```
 
   </TabItem>

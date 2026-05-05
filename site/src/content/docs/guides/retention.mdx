@@ -16,6 +16,31 @@ Knocker keeps retention intentionally small:
 ## Examples
 
 <Tabs>
+  <TabItem label="Python">
+
+```python
+summary = webhooks.prune_events(
+    statuses=["handled", "ignored"],
+    older_than=1700000000,
+    limit=100,
+)
+
+orphans = webhooks.prune_orphan_deliveries(
+    older_than=1700000000,
+    limit=100,
+)
+
+audits = webhooks.list_prune_audits(kind="prune_events", limit=50)
+
+policy = knocker.RetentionPolicy(
+    interval_s=60,
+    event_older_than_s=7 * 24 * 60 * 60,
+    orphan_deliveries_older_than_s=24 * 60 * 60,
+)
+await webhooks.run_retention(policy, stop_event=stop)
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts
@@ -118,31 +143,6 @@ await webhooks.runRetention({
   eventOlderThanS: 7 * 24 * 60 * 60,
   orphanDeliveriesOlderThanS: 24 * 60 * 60,
 });
-```
-
-  </TabItem>
-  <TabItem label="Python">
-
-```python
-summary = webhooks.prune_events(
-    statuses=["handled", "ignored"],
-    older_than=1700000000,
-    limit=100,
-)
-
-orphans = webhooks.prune_orphan_deliveries(
-    older_than=1700000000,
-    limit=100,
-)
-
-audits = webhooks.list_prune_audits(kind="prune_events", limit=50)
-
-policy = knocker.RetentionPolicy(
-    interval_s=60,
-    event_older_than_s=7 * 24 * 60 * 60,
-    orphan_deliveries_older_than_s=24 * 60 * 60,
-)
-await webhooks.run_retention(policy, stop_event=stop)
 ```
 
   </TabItem>

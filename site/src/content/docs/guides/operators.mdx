@@ -13,6 +13,28 @@ For production recovery recipes, see the [Operator runbook](/guides/operator-run
 ## Common Operations
 
 <Tabs>
+  <TabItem label="Python">
+
+```python
+events = webhooks.list_events(endpoint="stripe", limit=50)
+invalid = webhooks.list_deliveries(
+    endpoint="stripe",
+    signature_valid=False,
+    orphaned=True,
+    since=1700000000,
+    limit=50,
+)
+
+event = webhooks.get_event(42)
+delivery = webhooks.get_delivery(99)
+
+webhooks.ignore(event.id)
+webhooks.replay(event.id)
+webhooks.requeue(event.id)
+webhooks.replay_delivery(delivery.id)
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts
@@ -101,28 +123,6 @@ webhooks.ignore(event.id);
 webhooks.replay(event.id);
 webhooks.requeue(event.id);
 webhooks.replayDelivery(delivery.id);
-```
-
-  </TabItem>
-  <TabItem label="Python">
-
-```python
-events = webhooks.list_events(endpoint="stripe", limit=50)
-invalid = webhooks.list_deliveries(
-    endpoint="stripe",
-    signature_valid=False,
-    orphaned=True,
-    since=1700000000,
-    limit=50,
-)
-
-event = webhooks.get_event(42)
-delivery = webhooks.get_delivery(99)
-
-webhooks.ignore(event.id)
-webhooks.replay(event.id)
-webhooks.requeue(event.id)
-webhooks.replay_delivery(delivery.id)
 ```
 
   </TabItem>
