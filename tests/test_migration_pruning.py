@@ -31,28 +31,13 @@ def _claim_one_for_test(app, worker_id: str) -> list:
             [app.queue_name, worker_id, 1, 60],
         )
     data = json.loads(rows[0]["rows_json"])
-    return [
-        _HonkerJob(
-            id=int(row["id"]),
-            worker_id=row["worker_id"],
-            attempts=int(row["attempts"]),
-            claim_expires_at=int(row["claim_expires_at"]),
-            payload=json.loads(row["payload"]),
-        )
-        for row in data
-    ]
+    return [_HonkerJob(app._queue, row) for row in data]
 
 
-async def test_python_open_migrates_v1_database_to_delivery_rows(db_path):
+async def test_python_open_rejects_legacy_database_shape(db_path):
     conn = sqlite3.connect(db_path)
     conn.executescript(
         """
-        CREATE TABLE knocker_meta (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
-        INSERT INTO knocker_meta(key, value) VALUES ('schema_version', '1');
-
         CREATE TABLE knocker_endpoints (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL UNIQUE,
@@ -134,18 +119,8 @@ async def test_python_open_migrates_v1_database_to_delivery_rows(db_path):
     )
     conn.close()
 
-    app = knocker.open(db_path)
-
-    event = app.get_event(1)
-    delivery = app.get_delivery(1)
-    version = app.db.query("SELECT value FROM knocker_meta WHERE key='schema_version'")
-    event_columns = {row["name"] for row in app.db.query("PRAGMA table_info(knocker_events)")}
-    assert version[0]["value"] == "2"
-    assert event.body == b"{}"
-    assert delivery.event_id == event.id
-    assert delivery.signature_valid is True
-    assert "signature_valid" not in event_columns
-    assert "signature_error" not in event_columns
+    with pytest.raises(RuntimeError, match="unsupported legacy knocker schema"):
+        knocker.open(db_path)
 
 async def test_prune_events_removes_old_terminal_events_and_linked_rows(db_path):
     app = knocker.open(db_path)
@@ -456,7 +431,7 @@ async def test_prune_events_missing_event_dispatch_exits_quietly_for_claimed_job
     live_rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert live_rows[0]["c"] == 0
 
-async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypatch):
+async def test_prune_events_rolls_back_when_delete_step_raises(db_path):
     app = knocker.open(db_path)
     app.add_endpoint(name="stripe", path="/webhooks/stripe")
 
@@ -472,13 +447,16 @@ async def test_prune_events_rolls_back_when_delete_step_raises(db_path, monkeypa
         tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, event_id])
         tx.query("UPDATE knocker_deliveries SET received_at=? WHERE event_id=?", [100, event_id])
 
-    original = app._delete_deliveries_for_event_ids
-
-    def boom(tx, event_ids):
-        original(tx, event_ids)
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(app, "_delete_deliveries_for_event_ids", boom)
+    with app.db.transaction() as tx:
+        tx.execute(
+            """
+            CREATE TRIGGER knocker_test_block_delivery_delete
+            BEFORE DELETE ON knocker_deliveries
+            BEGIN
+              SELECT RAISE(FAIL, 'boom');
+            END
+            """
+        )
 
     with pytest.raises(RuntimeError, match="boom"):
         app.prune_events(statuses=["handled"], older_than=200, limit=10)
@@ -521,3 +499,171 @@ async def test_prune_events_keeps_other_event_deliveries_intact(db_path):
         app.get_event(first_id)
     assert app.get_event(second_id).status == "handled"
     assert app.get_delivery(second.delivery_id).event_id == second_id
+
+
+async def test_prune_events_writes_audit_row_with_correct_counts(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-audit-1"}',
+        headers={},
+        provider_event_id="evt-audit-1",
+    )
+    second = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-audit-2"}',
+        headers={},
+        provider_event_id="evt-audit-2",
+    )
+    first_id = _require_event_id(first)
+    second_id = _require_event_id(second)
+
+    with app.db.transaction() as tx:
+        tx.query("SELECT knocker_mark_handled(?, ?)", [first_id, 0])
+        tx.query("SELECT knocker_mark_handled(?, ?)", [second_id, 0])
+        tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, first_id])
+        tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, second_id])
+        tx.query("UPDATE knocker_deliveries SET received_at=? WHERE event_id=?", [100, first_id])
+        tx.query("UPDATE knocker_deliveries SET received_at=? WHERE event_id=?", [100, second_id])
+
+    result = app.prune_events(statuses=["handled"], older_than=200, limit=10)
+    assert result.events_pruned == 2
+
+    audits = app.list_prune_audits()
+    assert len(audits) == 1
+    audit = audits[0]
+    assert audit.kind == "prune_events"
+    assert audit.queue_name == app.queue_name
+    assert audit.events_pruned == 2
+    assert audit.deliveries_pruned == 2
+    assert audit.attempts_pruned == 2
+    assert audit.live_jobs_pruned == 2
+    summary = json.loads(audit.summary_json)
+    assert summary["statuses"] == ["handled"]
+    assert summary["older_than"] == 200
+    assert summary["limit"] == 10
+
+
+async def test_prune_orphan_deliveries_writes_audit_row(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    orphan = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-orphan-audit"}',
+        headers={},
+        provider_event_id="evt-orphan-audit",
+        signature_valid=False,
+    )
+
+    with app.db.transaction() as tx:
+        tx.query("UPDATE knocker_deliveries SET received_at=? WHERE id=?", [100, orphan.delivery_id])
+
+    result = app.prune_orphan_deliveries(older_than=200, limit=10)
+    assert result.deliveries_pruned == 1
+
+    audits = app.list_prune_audits()
+    assert len(audits) == 1
+    audit = audits[0]
+    assert audit.kind == "prune_orphan_deliveries"
+    assert audit.queue_name == app.queue_name
+    assert audit.events_pruned is None
+    assert audit.deliveries_pruned == 1
+    assert audit.attempts_pruned is None
+    assert audit.live_jobs_pruned is None
+    summary = json.loads(audit.summary_json)
+    assert summary["older_than"] == 200
+    assert summary["limit"] == 10
+
+
+async def test_prune_events_no_op_still_writes_audit_row(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    result = app.prune_events(statuses=["handled"], older_than=200, limit=10)
+    assert result == knocker.PruneEventsResult(0, 0, 0, 0)
+
+    audits = app.list_prune_audits()
+    assert len(audits) == 1
+    audit = audits[0]
+    assert audit.kind == "prune_events"
+    assert audit.events_pruned == 0
+    assert audit.deliveries_pruned == 0
+    assert audit.attempts_pruned == 0
+    assert audit.live_jobs_pruned == 0
+
+
+async def test_prune_orphan_deliveries_no_op_still_writes_audit_row(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    result = app.prune_orphan_deliveries(older_than=200, limit=10)
+    assert result == knocker.PruneDeliveriesResult(0)
+
+    audits = app.list_prune_audits()
+    assert len(audits) == 1
+    audit = audits[0]
+    assert audit.kind == "prune_orphan_deliveries"
+    assert audit.deliveries_pruned == 0
+
+
+async def test_prune_events_rollback_does_not_leave_audit_residue(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    result = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-audit-rollback"}',
+        headers={},
+        provider_event_id="evt-audit-rollback",
+    )
+    event_id = _require_event_id(result)
+    with app.db.transaction() as tx:
+        tx.query("SELECT knocker_mark_handled(?, ?)", [event_id, 0])
+        tx.query("UPDATE knocker_events SET received_at=? WHERE id=?", [100, event_id])
+        tx.query("UPDATE knocker_deliveries SET received_at=? WHERE event_id=?", [100, event_id])
+
+    with app.db.transaction() as tx:
+        tx.execute(
+            """
+            CREATE TRIGGER knocker_test_block_delivery_delete_audit
+            BEFORE DELETE ON knocker_deliveries
+            BEGIN
+              SELECT RAISE(FAIL, 'boom');
+            END
+            """
+        )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        app.prune_events(statuses=["handled"], older_than=200, limit=10)
+
+    audits = app.list_prune_audits()
+    assert len(audits) == 0
+
+
+async def test_list_prune_audits_supports_kind_since_limit_and_newest_first(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    app.prune_events(statuses=["handled"], older_than=1000, limit=10)
+    time.sleep(1.1)
+    app.prune_orphan_deliveries(older_than=1000, limit=10)
+
+    all_audits = app.list_prune_audits()
+    assert len(all_audits) == 2
+    assert all_audits[0].kind == "prune_orphan_deliveries"
+    assert all_audits[1].kind == "prune_events"
+
+    event_audits = app.list_prune_audits(kind="prune_events")
+    assert len(event_audits) == 1
+    assert event_audits[0].kind == "prune_events"
+
+    since_audits = app.list_prune_audits(since=all_audits[0].executed_at)
+    assert len(since_audits) == 1
+    assert since_audits[0].kind == "prune_orphan_deliveries"
+
+    limited = app.list_prune_audits(limit=1)
+    assert len(limited) == 1
+    assert limited[0].kind == "prune_orphan_deliveries"

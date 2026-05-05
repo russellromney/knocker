@@ -1,0 +1,7 @@
+{
+  "name": "paddle",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Paddle webhook verification using the Paddle-Signature header (ts + h1 HMAC-SHA256 over {timestamp}:{body}). Extracts event_id and event_type from the JSON body.",
+  "upstream_docs_url": "https://developer.paddle.com/webhooks/signature-verification"
+}

@@ -1,0 +1,17 @@
+{
+  "description": "Valid Basic Auth credentials should accept and extract MessageID plus RecordType from the JSON body.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Basic dXNlcjpwYXNz"
+    },
+    "query": {},
+    "body": "{\"RecordType\":\"Delivery\",\"MessageID\":\"postmark-msg-1\"}",
+    "secrets": ["user:pass"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "postmark-msg-1",
+    "event_type": "Delivery"
+  }
+}

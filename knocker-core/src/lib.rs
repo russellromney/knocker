@@ -2,7 +2,7 @@ mod knocker_ops;
 
 pub use knocker_ops::attach_knocker_functions;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -12,16 +12,7 @@ pub enum Error {
     Sqlite(#[from] rusqlite::Error),
 }
 
-pub const KNOCKER_SCHEMA_VERSION: &str = "2";
-
-const KNOCKER_META_SQL: &str = "
-    CREATE TABLE IF NOT EXISTS knocker_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-";
-
-const BOOTSTRAP_KNOCKER_SQL_V2: &str = "
+const BOOTSTRAP_KNOCKER_SQL: &str = "
     CREATE TABLE IF NOT EXISTS knocker_endpoints (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -92,104 +83,27 @@ const BOOTSTRAP_KNOCKER_SQL_V2: &str = "
 
     CREATE INDEX IF NOT EXISTS knocker_attempts_event
       ON knocker_attempts(event_id, id);
+
+    CREATE TABLE IF NOT EXISTS knocker_prune_audits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      queue_name TEXT NOT NULL,
+      executed_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      events_pruned INTEGER,
+      deliveries_pruned INTEGER,
+      attempts_pruned INTEGER,
+      live_jobs_pruned INTEGER,
+      summary_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS knocker_prune_audits_kind_executed
+      ON knocker_prune_audits(kind, executed_at DESC, id DESC);
 ";
 
 pub fn bootstrap_knocker_schema(conn: &Connection) -> Result<(), Error> {
     honker_core::bootstrap_honker_schema(conn)?;
-    conn.execute_batch(KNOCKER_META_SQL)?;
-
-    let schema_version: Option<String> = conn
-        .query_row(
-            "SELECT value FROM knocker_meta WHERE key='schema_version'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-
-    match schema_version.as_deref() {
-        None => {
-            conn.execute_batch(BOOTSTRAP_KNOCKER_SQL_V2)?;
-            set_schema_version(conn, KNOCKER_SCHEMA_VERSION)?;
-        }
-        Some("1") => migrate_v1_to_v2(conn)?,
-        Some(KNOCKER_SCHEMA_VERSION) => {
-            conn.execute_batch(BOOTSTRAP_KNOCKER_SQL_V2)?;
-            set_schema_version(conn, KNOCKER_SCHEMA_VERSION)?;
-        }
-        Some(other) => {
-            return Err(rusqlite::Error::InvalidParameterName(format!(
-                "unsupported knocker schema version: {other}"
-            ))
-            .into());
-        }
-    }
-
-    Ok(())
-}
-
-fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(BOOTSTRAP_KNOCKER_SQL_V2)?;
-    conn.execute(
-        "
-        INSERT INTO knocker_deliveries (
-            endpoint_id,
-            event_id,
-            received_at,
-            provider_event_id,
-            provider_delivery_id,
-            event_type,
-            method,
-            headers_json,
-            body_blob,
-            query_json,
-            signature_valid,
-            signature_error,
-            dedupe_key
-        )
-        SELECT
-            e.endpoint_id,
-            e.id,
-            e.received_at,
-            e.provider_event_id,
-            e.provider_delivery_id,
-            e.event_type,
-            e.method,
-            e.headers_json,
-            e.body_blob,
-            e.query_json,
-            e.signature_valid,
-            e.signature_error,
-            e.dedupe_key
-        FROM knocker_events e
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM knocker_deliveries d
-            WHERE d.event_id = e.id
-        )
-        ",
-        [],
-    )?;
-
-    if column_exists(conn, "knocker_events", "signature_valid")? {
-        conn.execute_batch("ALTER TABLE knocker_events DROP COLUMN signature_valid;")?;
-    }
-    if column_exists(conn, "knocker_events", "signature_error")? {
-        conn.execute_batch("ALTER TABLE knocker_events DROP COLUMN signature_error;")?;
-    }
-
-    set_schema_version(conn, KNOCKER_SCHEMA_VERSION)?;
-    Ok(())
-}
-
-fn set_schema_version(conn: &Connection, version: &str) -> rusqlite::Result<()> {
-    conn.execute(
-        "
-        INSERT INTO knocker_meta (key, value)
-        VALUES ('schema_version', ?1)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value
-        ",
-        params![version],
-    )?;
+    conn.execute_batch(BOOTSTRAP_KNOCKER_SQL)?;
+    ensure_current_schema(conn)?;
     Ok(())
 }
 
@@ -204,6 +118,41 @@ fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> rusq
         }
     }
     Ok(false)
+}
+
+fn table_exists(conn: &Connection, table_name: &str) -> rusqlite::Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        params![table_name],
+        |row| row.get(0),
+    )?;
+    Ok(count == 1)
+}
+
+fn ensure_current_schema(conn: &Connection) -> rusqlite::Result<()> {
+    let required_tables = [
+        "knocker_endpoints",
+        "knocker_events",
+        "knocker_deliveries",
+        "knocker_attempts",
+        "knocker_prune_audits",
+    ];
+    for table_name in required_tables {
+        if !table_exists(conn, table_name)? {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "unsupported knocker schema: missing required table {table_name}; rebuild the database with the current schema"
+            )));
+        }
+    }
+    if column_exists(conn, "knocker_events", "signature_valid")?
+        || column_exists(conn, "knocker_events", "signature_error")?
+    {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "unsupported legacy knocker schema: rebuild the database with the current schema"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -238,14 +187,14 @@ mod tests {
         bootstrap_knocker_schema(&conn).unwrap();
         bootstrap_knocker_schema(&conn).unwrap();
 
-        let version: String = conn
+        let table_exists: i64 = conn
             .query_row(
-                "SELECT value FROM knocker_meta WHERE key='schema_version'",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knocker_prune_audits'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, KNOCKER_SCHEMA_VERSION);
+        assert_eq!(table_exists, 1);
     }
 
     #[test]
@@ -623,19 +572,11 @@ mod tests {
     }
 
     #[test]
-    fn migration_from_v1_backfills_deliveries_and_drops_event_verification_fields() {
+    fn bootstrap_rejects_legacy_event_schema() {
         let conn = open_test_conn();
         honker_core::bootstrap_honker_schema(&conn).unwrap();
         conn.execute_batch(
             "
-            CREATE TABLE IF NOT EXISTS knocker_meta (
-              key TEXT PRIMARY KEY,
-              value TEXT NOT NULL
-            );
-            INSERT INTO knocker_meta(key, value)
-              VALUES ('schema_version', '1')
-              ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-
             CREATE TABLE IF NOT EXISTS knocker_endpoints (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL UNIQUE,
@@ -723,28 +664,8 @@ mod tests {
         )
         .unwrap();
 
-        bootstrap_knocker_schema(&conn).unwrap();
-
-        let version: String = conn
-            .query_row(
-                "SELECT value FROM knocker_meta WHERE key='schema_version'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(version, KNOCKER_SCHEMA_VERSION);
-
-        let delivery_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM knocker_deliveries WHERE event_id=1",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(delivery_count, 1);
-
-        assert!(!column_exists(&conn, "knocker_events", "signature_valid").unwrap());
-        assert!(!column_exists(&conn, "knocker_events", "signature_error").unwrap());
+        let err = bootstrap_knocker_schema(&conn).unwrap_err().to_string();
+        assert!(err.contains("unsupported legacy knocker schema"));
     }
 
     #[test]
@@ -1038,5 +959,113 @@ mod tests {
             )
             .unwrap();
         assert_eq!(queue_count, 1);
+    }
+
+    #[test]
+    fn knocker_reset_event_resets_status_attempt_count_and_clears_errors() {
+        let conn = open_test_conn();
+        bootstrap_knocker_schema(&conn).unwrap();
+        insert_endpoint(&conn, "stripe", "/webhooks/stripe", "stripe");
+        conn.query_row(
+            "SELECT knocker_ingest(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                "stripe",
+                "POST",
+                "{}",
+                b"{}".to_vec(),
+                "{}",
+                1,
+                Option::<String>::None,
+                Option::<String>::None,
+                Some("delivery_1"),
+                Option::<String>::None,
+                Option::<String>::None,
+                "knocker.events",
+                3,
+            ],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        conn.query_row(
+            "SELECT knocker_mark_handled(?1, ?2)",
+            params![1i64, 0i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        conn.query_row(
+            "SELECT knocker_reset_event(?1)",
+            params![1i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        let state: (String, i64, Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT status, attempt_count, last_error, handled_at FROM knocker_events WHERE id=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(state.0, "received");
+        assert_eq!(state.1, 0);
+        assert_eq!(state.2, None::<String>);
+        assert_eq!(state.3, None::<i64>);
+    }
+
+    #[test]
+    fn knocker_reset_event_does_not_record_attempt_history() {
+        let conn = open_test_conn();
+        bootstrap_knocker_schema(&conn).unwrap();
+        insert_endpoint(&conn, "stripe", "/webhooks/stripe", "stripe");
+        conn.query_row(
+            "SELECT knocker_ingest(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                "stripe",
+                "POST",
+                "{}",
+                b"{}".to_vec(),
+                "{}",
+                1,
+                Option::<String>::None,
+                Option::<String>::None,
+                Some("delivery_1"),
+                Option::<String>::None,
+                Option::<String>::None,
+                "knocker.events",
+                3,
+            ],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        conn.query_row(
+            "SELECT knocker_mark_handled(?1, ?2)",
+            params![1i64, 0i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(before, 1);
+
+        conn.query_row(
+            "SELECT knocker_reset_event(?1)",
+            params![1i64],
+            |_| Ok(()),
+        )
+        .unwrap();
+
+        let after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knocker_attempts WHERE event_id=1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(after, 1);
     }
 }

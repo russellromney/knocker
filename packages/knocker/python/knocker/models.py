@@ -72,6 +72,33 @@ class PruneDeliveriesResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PruneAudit:
+    """One durable audit row for an explicit prune operation."""
+
+    id: int
+    kind: str
+    queue_name: str
+    executed_at: int
+    events_pruned: Optional[int]
+    deliveries_pruned: int
+    attempts_pruned: Optional[int]
+    live_jobs_pruned: Optional[int]
+    summary_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionPolicy:
+    """Python-first scheduled retention configuration."""
+
+    interval_s: int
+    event_statuses: tuple[str, ...] = ("handled", "ignored")
+    event_older_than_s: Optional[int] = None
+    event_limit: int = 100
+    orphan_deliveries_older_than_s: Optional[int] = None
+    orphan_deliveries_limit: int = 100
+
+
+@dataclass(frozen=True, slots=True)
 class WorkerState:
     """Local, non-durable snapshot of a running Knocker worker."""
 

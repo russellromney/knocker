@@ -1,0 +1,22 @@
+{
+  "description": "Wrong Shopify secret should reject as a mismatch while keeping extracted metadata on the orphan delivery.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Shopify-Hmac-Sha256": "DayynYV5gh0An1Yi3bGKsMap5QAxE7af9WuWXea4BV4=",
+      "X-Shopify-Webhook-Id": "shopify-delivery-2",
+      "X-Shopify-Event-Id": "shopify-event-2",
+      "X-Shopify-Topic": "orders/create"
+    },
+    "query": {},
+    "body": "{\"id\":1002,\"admin_graphql_api_id\":\"gid://shopify/Order/1002\"}",
+    "secrets": ["shopify-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "shopify signature mismatch",
+    "provider_delivery_id": "shopify-delivery-2",
+    "provider_event_id": "shopify-event-2",
+    "event_type": "orders/create"
+  }
+}

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import knocker
 import pytest
+from knocker.queue import _HonkerQueue
 
 from tests.helpers import (
     generic_hmac_signature as _generic_hmac_signature,
@@ -224,6 +225,103 @@ async def test_idle_worker_wakes_on_wal_commit_without_waiting_for_poll_timeout(
     stop.set()
     await asyncio.wait_for(worker, timeout=3.0)
     assert app.get_event(event_id).status == "handled"
+
+async def test_worker_uses_batched_claims_in_real_path(db_path, monkeypatch):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    seen = []
+
+    @app.handle(endpoint="stripe")
+    def handle(event, tx):
+        seen.append(event.id)
+
+    result = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-batched-claim"}',
+        headers={},
+        provider_event_id="evt-batched-claim",
+        provider_delivery_id="delivery-batched-claim",
+        event_type="checkout.session.completed",
+    )
+    event_id = _require_event_id(result)
+
+    original_claim_batch = _HonkerQueue.claim_batch
+    asked_for = []
+
+    def patched_claim_batch(self, worker_id, n):
+        asked_for.append(int(n))
+        return original_claim_batch(self, worker_id, n)
+
+    monkeypatch.setattr(_HonkerQueue, "claim_batch", patched_claim_batch)
+
+    stop = asyncio.Event()
+    worker = asyncio.create_task(app.run_worker(stop_event=stop, idle_poll_s=0.01))
+    try:
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while asyncio.get_running_loop().time() < deadline:
+            if seen:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        stop.set()
+        await asyncio.wait_for(worker, timeout=3.0)
+
+    assert seen == [event_id]
+    assert asked_for
+    assert asked_for[0] > 1
+
+async def test_worker_stop_drains_locally_buffered_claims_before_exit(db_path, monkeypatch):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    seen = []
+    stop = asyncio.Event()
+
+    @app.handle(endpoint="stripe", event_type="checkout.session.completed")
+    def handle(event, tx):
+        seen.append(event.id)
+        if len(seen) == 1:
+            stop.set()
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-stop-buffer-1"}',
+        headers={},
+        provider_event_id="evt-stop-buffer-1",
+        provider_delivery_id="delivery-stop-buffer-1",
+        event_type="checkout.session.completed",
+    )
+    second = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-stop-buffer-2"}',
+        headers={},
+        provider_event_id="evt-stop-buffer-2",
+        provider_delivery_id="delivery-stop-buffer-2",
+        event_type="checkout.session.completed",
+    )
+    first_id = _require_event_id(first)
+    second_id = _require_event_id(second)
+
+    original_claim_batch = _HonkerQueue.claim_batch
+    used_batch = {"done": False}
+
+    def patched_claim_batch(self, worker_id, n):
+        if not used_batch["done"]:
+            used_batch["done"] = True
+            return original_claim_batch(self, worker_id, 2)
+        return original_claim_batch(self, worker_id, n)
+
+    monkeypatch.setattr(_HonkerQueue, "claim_batch", patched_claim_batch)
+
+    worker = asyncio.create_task(app.run_worker(stop_event=stop, idle_poll_s=0.01))
+    await asyncio.wait_for(worker, timeout=5.0)
+
+    assert seen == [first_id, second_id]
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
+    assert rows[0]["c"] == 0
+    assert app.get_event(first_id).status == "handled"
+    assert app.get_event(second_id).status == "handled"
 
 async def test_burst_ingest_then_worker_drain_smoke(db_path):
     app = knocker.open(db_path)

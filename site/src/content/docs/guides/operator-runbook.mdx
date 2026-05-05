@@ -94,6 +94,37 @@ for state in states:
 
 Knocker does not supervise your process. Wrap `run_worker(...)` in your app's normal task supervision or process manager, and restart it the same way you restart the rest of your application.
 
+## What restart confidence Knocker actually tests
+
+Knocker does not claim special crash semantics beyond the SQLite transactions it uses.
+
+What is explicitly covered in the repo today:
+
+- a real subprocess-kill test where ingress work is interrupted before commit; the fresh reopen sees no phantom `Event`, `Delivery`, or queued job
+- committed ingress survives a fresh-process reopen and is still processable
+- expired claims can be reclaimed after reopen and drained normally
+
+So the mental model is intentionally boring:
+
+- if the relevant SQLite transaction committed, Knocker state committed
+- if it rolled back or never committed, Knocker state did not durably change
+
+Representative local benchmark command:
+
+```bash
+uv run --group dev python bench/knocker_bench.py --ingest-n 5000 --worker-n 5000
+```
+
+Representative local numbers on an Apple M1 Pro, Python 3.13.5, SQLite 3.49.1:
+
+- durable ingress-only: `5,000` events in `1.445s` (`3,460/s`, `0.289 ms/event`)
+- no-op-handler worker drain: `5,000` events in `1.836s` (`2,723/s`, `0.367 ms/event`)
+
+These numbers assume the ordinary same-process shape: one long-lived
+`knocker.open(...)` per process, reused for ingress and local workers.
+Opening many independent Knocker handles against one SQLite file is
+supported, but it is intentionally treated as a degraded contention mode.
+
 ## Before pruning
 
 Pruning is explicit and irreversible. Preview candidates with the read APIs first:
@@ -121,7 +152,15 @@ summary = app.prune_orphan_deliveries(
 )
 ```
 
-Knocker does not currently write a separate prune audit row. If prune invocation history matters for your app, log the call and the returned summary in your own application logging.
+Every prune call writes a durable audit row. Inspect the trail:
+
+```python
+audits = app.list_prune_audits(limit=20)
+for audit in audits:
+    print(audit.kind, audit.executed_at, audit.summary_json)
+```
+
+Audit rows include what was deleted, when, and which filters were used. Even a no-op prune (zero rows deleted) records an audit row so the operator timeline is unambiguous.
 
 ## When to inspect deliveries
 

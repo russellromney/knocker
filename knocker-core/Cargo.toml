@@ -10,7 +10,7 @@ publish = false
 name = "knocker_core"
 
 [dependencies]
-honker-core = "0.2.1"
+honker-core = "0.2.3"
 rusqlite = { version = "0.39.0", features = ["functions", "hooks"] }
 serde_json = "1.0"
 thiserror = "2.0.18"

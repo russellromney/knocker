@@ -1,5 +1,7 @@
+import json
 import hashlib
 import hmac
+from pathlib import Path
 
 import knocker
 import pytest
@@ -10,23 +12,66 @@ from tests.helpers import (
 )
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_PROVIDERS_DIR = _REPO_ROOT / "providers"
+_CURATED_PROVIDER_NAMES = {
+    "stripe",
+    "github",
+    "shopify",
+    "slack",
+    "postmark",
+    "resend",
+    "paddle",
+    "lemon-squeezy",
+}
+
+
 def _github_signature(secret: str, body: bytes) -> str:
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
 
 
+def _load_provider_fixture(provider_name: str, fixture_id: str) -> dict:
+    path = _PROVIDERS_DIR / provider_name / "fixtures" / f"{fixture_id}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _receive_provider_fixture(app, provider_name: str, fixture_id: str):
+    fixture = _load_provider_fixture(provider_name, fixture_id)
+    request = fixture["request"]
+    provider_options = dict(request.get("provider_options", {}))
+    if "now_s" in request:
+        provider_options["tolerance_s"] = max(
+            int(provider_options.get("tolerance_s", 0)),
+            10_000_000_000,
+        )
+    app.add_endpoint(
+        name=provider_name,
+        path=f"/webhooks/{provider_name}",
+        provider=provider_name,
+        secrets=request["secrets"],
+        provider_options=provider_options or None,
+    )
+    result = app.receive(
+        endpoint=provider_name,
+        body=request["body"].encode("utf-8"),
+        headers=dict(request.get("headers", {})),
+        query=dict(request.get("query", {})),
+    )
+    return fixture, result
+
+
 # Provider registry surface ------------------------------------------------
 
 
-async def test_builtin_provider_versions_includes_stripe_and_github(db_path):
+async def test_builtin_provider_versions_includes_curated_provider_pack(db_path):
     app = knocker.open(db_path)
 
     versions = app.provider_versions()
 
-    assert "stripe" in versions
-    assert "github" in versions
-    assert isinstance(versions["stripe"], str) and versions["stripe"]
-    assert isinstance(versions["github"], str) and versions["github"]
+    assert _CURATED_PROVIDER_NAMES.issubset(versions)
+    for name in _CURATED_PROVIDER_NAMES:
+        assert isinstance(versions[name], str) and versions[name]
 
 
 async def test_provider_versions_returns_fresh_copy(db_path):
@@ -55,7 +100,7 @@ async def test_provider_versions_only_lists_curated_builtins(db_path):
 
     app = knocker.open(db_path)
     versions = app.provider_versions()
-    assert set(versions.keys()) == {"stripe", "github"}
+    assert set(versions.keys()) == _CURATED_PROVIDER_NAMES
 
 
 async def test_add_endpoint_rejects_unknown_provider_name(db_path):
@@ -174,6 +219,29 @@ async def test_add_endpoint_validates_stripe_tolerance(db_path):
             path="/webhooks/stripe2",
             provider="stripe",
             secrets=["whsec_test"],
+            provider_options={"tolerance_s": "300"},
+        )
+
+
+@pytest.mark.parametrize("provider_name", ["slack", "resend", "paddle"])
+async def test_add_endpoint_validates_tolerance_for_curated_provider(db_path, provider_name):
+    app = knocker.open(db_path)
+
+    with pytest.raises(ValueError, match="non-negative"):
+        app.add_endpoint(
+            name=provider_name,
+            path=f"/webhooks/{provider_name}",
+            provider=provider_name,
+            secrets=["test-secret"],
+            provider_options={"tolerance_s": -1},
+        )
+
+    with pytest.raises(TypeError, match="must be an integer"):
+        app.add_endpoint(
+            name=f"{provider_name}-2",
+            path=f"/webhooks/{provider_name}-2",
+            provider=provider_name,
+            secrets=["test-secret"],
             provider_options={"tolerance_s": "300"},
         )
 
@@ -600,6 +668,64 @@ async def test_stripe_invalid_signature_orphan_preserves_extracted_metadata(db_p
     assert delivery.signature_valid is False
     assert delivery.provider_event_id == "evt_orphan"
     assert delivery.event_type == "checkout.session.completed"
+
+
+@pytest.mark.parametrize("provider_name", sorted(_CURATED_PROVIDER_NAMES))
+async def test_curated_provider_valid_fixture_flows_through_receive(db_path, provider_name):
+    app = knocker.open(db_path)
+
+    fixture, result = _receive_provider_fixture(app, provider_name, "valid")
+
+    expected = fixture["expected"]
+    event_id = _require_event_id(result)
+    event = app.get_event(event_id)
+    delivery = app.get_delivery(result.delivery_id)
+    assert delivery.signature_valid is True
+    assert delivery.signature_error is None
+    assert delivery.body == fixture["request"]["body"].encode("utf-8")
+    if "provider_delivery_id" in expected:
+        assert event.provider_delivery_id == expected["provider_delivery_id"]
+        assert delivery.provider_delivery_id == expected["provider_delivery_id"]
+    if "provider_event_id" in expected:
+        assert event.provider_event_id == expected["provider_event_id"]
+        assert delivery.provider_event_id == expected["provider_event_id"]
+    if "event_type" in expected:
+        assert event.event_type == expected["event_type"]
+        assert delivery.event_type == expected["event_type"]
+
+
+@pytest.mark.parametrize(
+    "provider_name,fixture_id",
+    [
+        ("stripe", "invalid_signature"),
+        ("github", "invalid_signature"),
+        ("shopify", "invalid_signature"),
+        ("slack", "invalid_signature"),
+        ("postmark", "invalid_signature"),
+        ("resend", "invalid_signature"),
+        ("paddle", "invalid_signature"),
+        ("lemon-squeezy", "invalid_signature"),
+    ],
+)
+async def test_curated_provider_invalid_fixture_becomes_orphan_delivery(
+    db_path, provider_name, fixture_id
+):
+    app = knocker.open(db_path)
+
+    fixture, result = _receive_provider_fixture(app, provider_name, fixture_id)
+
+    expected = fixture["expected"]
+    assert result.event_id is None
+    delivery = app.get_delivery(result.delivery_id)
+    assert delivery.signature_valid is False
+    assert delivery.body == fixture["request"]["body"].encode("utf-8")
+    assert expected["signature_error_contains"] in (delivery.signature_error or "")
+    if "provider_delivery_id" in expected:
+        assert delivery.provider_delivery_id == expected["provider_delivery_id"]
+    if "provider_event_id" in expected:
+        assert delivery.provider_event_id == expected["provider_event_id"]
+    if "event_type" in expected:
+        assert delivery.event_type == expected["event_type"]
 
 
 # Compatibility paths -----------------------------------------------------

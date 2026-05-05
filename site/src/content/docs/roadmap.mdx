@@ -8,12 +8,13 @@ Knocker's current shape is intentionally narrow:
 - verified webhook ingress
 - durable `Delivery` and `Event` rows on SQLite
 - Python-first operator reads and event actions
-- explicit minimal pruning
+- explicit pruning plus small Python-first retention automation
+- SQLite-shaped runtime-confidence tests plus representative local performance evidence
 
 ## Still intentionally deferred
 
-- automatic retention jobs and richer retention policy
 - broader cross-binding operator parity
+- richer retention policy beyond the current Python-first automation
 - hosted control plane or built-in admin API
 - HTML admin UI
 - Node-first or multi-language operator surfaces beyond smoke-level contract checks
@@ -25,5 +26,12 @@ The current release work is about clarity and proof, not new semantics:
 - ship-worthy docs
 - representative performance evidence
 - explicit compatibility and publish criteria
+
+That proof is intentionally modest:
+
+- a real subprocess-kill crash test
+- a fresh-process reopen path
+- a small local benchmark harness plus loose CI performance floors
+- Node contract pressure-tests over the shared SQLite contract, not a second full binding
 
 If Knocker grows later, it should do so by staying library-shaped: small durable semantics in the core, thin binding-owned ergonomics on top.

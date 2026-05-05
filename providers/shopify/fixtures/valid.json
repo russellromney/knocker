@@ -1,0 +1,21 @@
+{
+  "description": "Valid Shopify HMAC should accept and extract delivery id, event id, and topic from headers.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Shopify-Hmac-Sha256": "E5X4Bp3zPgn2Ux3xrYT+kMpy8iwv1yRguLXfzoHM05Y=",
+      "X-Shopify-Webhook-Id": "shopify-delivery-1",
+      "X-Shopify-Event-Id": "shopify-event-1",
+      "X-Shopify-Topic": "orders/create"
+    },
+    "query": {},
+    "body": "{\"id\":1001,\"admin_graphql_api_id\":\"gid://shopify/Order/1001\"}",
+    "secrets": ["shopify-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_delivery_id": "shopify-delivery-1",
+    "provider_event_id": "shopify-event-1",
+    "event_type": "orders/create"
+  }
+}

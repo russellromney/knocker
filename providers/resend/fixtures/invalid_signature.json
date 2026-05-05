@@ -1,0 +1,22 @@
+{
+  "description": "Wrong Resend secret should reject as a mismatch while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "svix-id": "msg_124",
+      "svix-timestamp": "1714000000",
+      "svix-signature": "v1,h35mYU9SJ3cm29J7ku3StBcMR2Rt4/lZyJiv9xT5HW4="
+    },
+    "query": {},
+    "body": "{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"email_124\"}}",
+    "secrets": ["whsec_resend"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "resend signature mismatch",
+    "provider_delivery_id": "msg_124",
+    "provider_event_id": "email_124",
+    "event_type": "email.bounced"
+  }
+}

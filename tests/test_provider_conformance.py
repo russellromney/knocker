@@ -19,6 +19,12 @@ import pytest
 
 import knocker
 from knocker._builtin_github import _GitHubProvider
+from knocker._builtin_lemonsqueezy import _LemonSqueezyProvider
+from knocker._builtin_paddle import _PaddleProvider
+from knocker._builtin_postmark import _PostmarkProvider
+from knocker._builtin_resend import _ResendProvider
+from knocker._builtin_shopify import _ShopifyProvider
+from knocker._builtin_slack import _SlackProvider
 from knocker._builtin_stripe import _StripeProvider
 from knocker.providers import _coerce_provider_options
 
@@ -66,6 +72,30 @@ def _provider_for(name: str, fixture: dict[str, Any]) -> knocker.Provider:
         return _StripeProvider(clock=lambda: frozen)
     if name == "github":
         return _GitHubProvider()
+    if name == "shopify":
+        return _ShopifyProvider()
+    if name == "slack":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _SlackProvider()
+        frozen = int(now_s)
+        return _SlackProvider(clock=lambda: frozen)
+    if name == "postmark":
+        return _PostmarkProvider()
+    if name == "resend":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _ResendProvider()
+        frozen = int(now_s)
+        return _ResendProvider(clock=lambda: frozen)
+    if name == "paddle":
+        now_s = fixture["request"].get("now_s")
+        if now_s is None:
+            return _PaddleProvider()
+        frozen = int(now_s)
+        return _PaddleProvider(clock=lambda: frozen)
+    if name == "lemon-squeezy":
+        return _LemonSqueezyProvider()
     raise ValueError(f"no curated python implementation for provider {name!r}")
 
 
@@ -103,46 +133,34 @@ def _run_fixture(provider_name: str, fixture_id: str, fixture: dict[str, Any]) -
     _assert_expected(fixture_id, fixture["expected"], result)
 
 
-# Stripe ------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "provider_name",
+    sorted(directory.name for directory in _PROVIDERS_DIR.iterdir() if directory.is_dir()),
+)
+def test_curated_fixture_conformance(provider_name):
+    for fixture_id, fixture in _load_fixtures(provider_name):
+        _run_fixture(provider_name, fixture_id, fixture)
 
 
 @pytest.mark.parametrize(
-    "fixture_id,fixture",
-    _load_fixtures("stripe"),
-    ids=lambda value: value if isinstance(value, str) else None,
+    "provider_name,provider_cls",
+    [
+        ("stripe", _StripeProvider),
+        ("github", _GitHubProvider),
+        ("shopify", _ShopifyProvider),
+        ("slack", _SlackProvider),
+        ("postmark", _PostmarkProvider),
+        ("resend", _ResendProvider),
+        ("paddle", _PaddleProvider),
+        ("lemon-squeezy", _LemonSqueezyProvider),
+    ],
 )
-def test_stripe_curated_fixture_conformance(fixture_id, fixture):
-    _run_fixture("stripe", fixture_id, fixture)
-
-
-def test_stripe_metadata_matches_python_implementation():
+def test_metadata_matches_python_implementation(provider_name, provider_cls):
     metadata = json.loads(
-        (_PROVIDERS_DIR / "stripe" / "metadata.json").read_text(encoding="utf-8")
+        (_PROVIDERS_DIR / provider_name / "metadata.json").read_text(encoding="utf-8")
     )
-    impl = _StripeProvider()
-    assert metadata["name"] == impl.name == "stripe"
-    assert metadata["version"] == impl.version
-    assert metadata["support_tier"] == "curated"
-
-
-# GitHub ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "fixture_id,fixture",
-    _load_fixtures("github"),
-    ids=lambda value: value if isinstance(value, str) else None,
-)
-def test_github_curated_fixture_conformance(fixture_id, fixture):
-    _run_fixture("github", fixture_id, fixture)
-
-
-def test_github_metadata_matches_python_implementation():
-    metadata = json.loads(
-        (_PROVIDERS_DIR / "github" / "metadata.json").read_text(encoding="utf-8")
-    )
-    impl = _GitHubProvider()
-    assert metadata["name"] == impl.name == "github"
+    impl = provider_cls()
+    assert metadata["name"] == impl.name == provider_name
     assert metadata["version"] == impl.version
     assert metadata["support_tier"] == "curated"
 

@@ -1,0 +1,7 @@
+{
+  "name": "postmark",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Postmark webhook verification using HTTP Basic Auth credentials pinned at endpoint registration. Extracts MessageID and RecordType from the JSON body.",
+  "upstream_docs_url": "https://postmarkapp.com/developer/webhooks/overview"
+}

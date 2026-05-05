@@ -1,0 +1,21 @@
+{
+  "description": "Missing X-Shopify-Hmac-Sha256 rejects before signature math and still keeps extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Shopify-Webhook-Id": "shopify-delivery-3",
+      "X-Shopify-Event-Id": "shopify-event-3",
+      "X-Shopify-Topic": "orders/create"
+    },
+    "query": {},
+    "body": "{\"id\":1003}",
+    "secrets": ["shopify-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing signature header: x-shopify-hmac-sha256",
+    "provider_delivery_id": "shopify-delivery-3",
+    "provider_event_id": "shopify-event-3",
+    "event_type": "orders/create"
+  }
+}

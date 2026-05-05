@@ -1,0 +1,131 @@
+---
+title: SQLite Bindings
+description: Minimal shared-contract bindings for Node, Bun, Ruby, Go, and Elixir.
+---
+
+Knocker is still Python-first for the richest operator surface, but the repo
+now also ships minimal runtime bindings that talk to the shared SQLite
+contract directly.
+
+Every binding in this page proves the same small baseline:
+
+- open/bootstrap
+- endpoint registration
+- ingest
+- endpoint handler registration plus one worker-processing path
+- `get_event`
+- `list_events`
+- `replay`
+
+These bindings are intentionally thin. They are not framework adapters and
+they do not try to mirror Python ergonomics yet.
+
+## Node
+
+Source: `packages/knocker-node`
+
+```js
+import { KnockerSqlite } from "./packages/knocker-node/index.mjs";
+
+const db = new KnockerSqlite("app.db");
+db.addEndpoint({
+  name: "github",
+  path: "/webhooks/github",
+  provider: "github",
+});
+
+const result = db.ingest({
+  endpoint: "github",
+  body: Buffer.from('{"hello":"world"}'),
+  providerDeliveryId: "node-delivery-1",
+  signatureValid: true,
+});
+
+db.registerHandler("github", (event) => {
+  console.log("handled", event.id);
+});
+
+db.runWorkerOnce("node-worker");
+```
+
+## Bun
+
+Source: `packages/knocker-bun`
+
+```ts
+import { KnockerSqlite } from "./packages/knocker-bun/index";
+
+const db = new KnockerSqlite("app.db");
+db.addEndpoint({
+  name: "github",
+  path: "/webhooks/github",
+  provider: "github",
+});
+```
+
+## Ruby
+
+Source: `packages/knocker-ruby`
+
+```ruby
+require_relative "../packages/knocker-ruby/lib/knocker_sqlite"
+
+db = KnockerSqlite::Database.open("app.db")
+db.add_endpoint(
+  name: "github",
+  path: "/webhooks/github",
+  provider: "github",
+  enabled: true,
+)
+```
+
+## Go
+
+Source: `packages/knocker-go`
+
+```go
+app, err := knockersqlite.Open("app.db")
+if err != nil {
+    panic(err)
+}
+defer app.Close()
+
+provider := "github"
+_, err = app.AddEndpoint(knockersqlite.AddEndpointParams{
+    Name:     "github",
+    Path:     "/webhooks/github",
+    Provider: &provider,
+    Enabled:  true,
+})
+```
+
+## Elixir
+
+Source: `packages/knocker-elixir`
+
+```elixir
+{:ok, app} = KnockerSqlite.open("app.db")
+
+{:ok, _endpoint_id} =
+  KnockerSqlite.add_endpoint(app, %{
+    name: "github",
+    path: "/webhooks/github",
+    provider: "github",
+    enabled: true
+  })
+```
+
+## Testing
+
+Repo-level commands:
+
+```bash
+make test-node
+make test-bun
+make test-ruby
+make test-go
+make test-elixir
+```
+
+`make test` runs the full Rust, Python, Node, Bun, Ruby, Go, and Elixir
+suite together.

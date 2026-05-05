@@ -1,0 +1,7 @@
+{
+  "name": "lemon-squeezy",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Lemon Squeezy webhook verification using X-Signature (hex HMAC-SHA256 over the raw body). Extracts the event name and the payload identifier from the JSON body.",
+  "upstream_docs_url": "https://docs.lemonsqueezy.com/help/webhooks/signing-requests"
+}

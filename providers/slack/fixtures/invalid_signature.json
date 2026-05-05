@@ -1,0 +1,20 @@
+{
+  "description": "Wrong Slack secret should reject as a mismatch while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Slack-Request-Timestamp": "1714000000",
+      "X-Slack-Signature": "v0=d2fc35cd6d6090939093f056a74f557d017f4b34a3e9464258829c92f4e28a47"
+    },
+    "query": {},
+    "body": "{\"type\":\"event_callback\",\"event_id\":\"Ev124\",\"event\":{\"type\":\"app_mention\"}}",
+    "secrets": ["slack-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "slack signature mismatch",
+    "provider_event_id": "Ev124",
+    "event_type": "app_mention"
+  }
+}

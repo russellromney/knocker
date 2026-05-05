@@ -1,0 +1,19 @@
+{
+  "description": "Wrong Paddle secret should reject as a mismatch while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Paddle-Signature": "ts=1714000000;h1=d0b966a7df10db348638148551699f0a3020b36f3cf22aca3419a7990169cf91"
+    },
+    "query": {},
+    "body": "{\"event_id\":\"paddle_evt_2\",\"event_type\":\"subscription.updated\"}",
+    "secrets": ["paddle-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "paddle signature mismatch",
+    "provider_event_id": "paddle_evt_2",
+    "event_type": "subscription.updated"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Missing Authorization header rejects before credential comparison and still preserves extracted body metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {},
+    "query": {},
+    "body": "{\"RecordType\":\"Open\",\"MessageID\":\"postmark-msg-3\"}",
+    "secrets": ["user:pass"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing authorization header",
+    "provider_event_id": "postmark-msg-3",
+    "event_type": "Open"
+  }
+}

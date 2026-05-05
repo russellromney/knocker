@@ -1,0 +1,42 @@
+# Commits
+
+Phase:
+- 014-honker-boundary-and-substrate-convergence
+
+Session:
+- A
+
+- Planning only.
+
+Session:
+- B
+
+- Executed the substrate-convergence pass across Knocker and Honker.
+- Switched Knocker onto more of Honker's public Python substrate instead of a long-lived private queue shim:
+  - `packages/knocker/python/knocker/queue.py` now aliases Honker queue/job types and only keeps the Knocker-specific transition error helper.
+  - `Knocker.run_worker(...)` now consumes Honker's buffered `Queue.claim(..., claim_batch_size=...)` path.
+- Reworked retention recurrence to use Honker Scheduler instead of Knocker-owned reseeding/lock orchestration:
+  - Knocker keeps `knocker_run_retention_pass(...)` as the semantic unit of work.
+  - Honker Scheduler now owns recurring wake/tick behavior.
+- Upgraded Honker's generic Python worker substrate in `../honker/packages/honker/python/honker/_honker.py`:
+  - `Queue.claim(..., claim_batch_size=...)`
+  - buffered `_WorkerQueueIter`
+  - optional transaction-aware `ack/retry/fail`
+  - `Outbox.run_worker(..., claim_batch_size=...)`
+- Updated Knocker's native Rust binding to the current Honker core API:
+  - `SharedUpdateWatcher` instead of `SharedWalWatcher`
+  - explicit writer-close handling for `Writer::acquire() -> Option<Connection>`
+  - explicit watcher shutdown in `Database.close()`
+- Pointed Knocker at the local Honker core path so the newer shared substrate functions are actually available from the extension/native binding.
+- Fixed the pruning test helper fallout so direct claimed-job dispatch tests construct real Honker `Job(queue, row)` objects.
+
+Verification:
+- `cargo test -p knocker-core` -> 14 passed
+- `uv run --group dev maturin develop --manifest-path packages/knocker/Cargo.toml` -> passed
+- `uv run --group dev pytest tests/test_retention_automation.py -q` -> 4 passed
+- `uv run --group dev pytest tests/test_ingest_worker.py -q` -> 16 passed
+- `uv run --group dev pytest tests/test_recovery.py -q` -> 12 passed
+- `make test` -> Rust 14 passed, Python 132 passed, Node 4 passed
+- `npm --prefix site run build` -> 12 pages built
+- `uv run --project ../honker pytest ../honker/tests/test_outbox.py -q` -> 11 passed
+- `uv run --project ../honker pytest ../honker/tests/test_tasks.py -q` -> 16 passed

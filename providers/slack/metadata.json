@@ -1,0 +1,7 @@
+{
+  "name": "slack",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Slack webhook verification using X-Slack-Signature over the v0:{timestamp}:{body} base string. Extracts event_id when present and the nested event type for event_callback payloads.",
+  "upstream_docs_url": "https://api.slack.com/authentication/verifying-requests-from-slack"
+}

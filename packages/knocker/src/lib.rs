@@ -1,4 +1,4 @@
-use honker_core::{Readers, SharedWalWatcher, Writer, open_conn};
+use honker_core::{Readers, SharedUpdateWatcher, Writer, open_conn};
 use knocker_core::attach_knocker_functions;
 use parking_lot::Mutex;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
@@ -106,7 +106,7 @@ struct Database {
     writer: Arc<Writer>,
     readers: Arc<Readers>,
     db_path: std::path::PathBuf,
-    shared_watcher: Mutex<Option<Arc<SharedWalWatcher>>>,
+    shared_watcher: Mutex<Option<Arc<SharedUpdateWatcher>>>,
 }
 
 #[pymethods]
@@ -140,7 +140,7 @@ impl Database {
             if let Some(existing) = guard.as_ref() {
                 existing.clone()
             } else {
-                let watcher = Arc::new(SharedWalWatcher::new(self.db_path.clone()));
+                let watcher = Arc::new(SharedUpdateWatcher::new(self.db_path.clone()));
                 *guard = Some(watcher.clone());
                 watcher
             }
@@ -157,6 +157,10 @@ impl Database {
         })
     }
 
+    fn update_events(&self) -> PyResult<WalEvents> {
+        self.wal_events()
+    }
+
     #[pyo3(signature = (sql, params=None))]
     fn query<'py>(
         &self,
@@ -168,6 +172,18 @@ impl Database {
         let result = run_query(py, &conn, &sql, params.as_ref());
         self.readers.release(conn);
         result
+    }
+
+    fn close(&self) {
+        let watcher = {
+            let mut guard = self.shared_watcher.lock();
+            guard.take()
+        };
+        if let Some(shared) = watcher {
+            let _ = shared.close();
+        }
+        self.writer.close();
+        self.readers.close();
     }
 }
 
@@ -205,7 +221,9 @@ impl Transaction {
         let writer = slf.writer.clone();
         let conn = match writer.try_acquire() {
             Some(c) => c,
-            None => py.detach(|| writer.acquire()),
+            None => py
+                .detach(|| writer.acquire())
+                .ok_or_else(|| PyRuntimeError::new_err("writer is closed"))?,
         };
         match run_cached_noparams(&conn, "BEGIN IMMEDIATE") {
             Ok(()) => {
@@ -292,6 +310,15 @@ impl Transaction {
             .ok_or_else(|| PyRuntimeError::new_err("Transaction not started"))?;
         run_query(py, conn, &sql, params.as_ref())
     }
+
+    fn bootstrap_honker_schema(&self) -> PyResult<()> {
+        let state = self.inner.lock();
+        let conn = state
+            .conn
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Transaction not started"))?;
+        honker_core::bootstrap_honker_schema(conn).map_err(core_err)
+    }
 }
 
 struct WalWatchState {
@@ -302,7 +329,7 @@ struct WalWatchState {
 #[pyclass]
 struct WalEvents {
     db_path: std::path::PathBuf,
-    shared: Arc<SharedWalWatcher>,
+    shared: Arc<SharedUpdateWatcher>,
     sub_id: u64,
     inner: Arc<Mutex<WalWatchState>>,
 }
@@ -364,6 +391,8 @@ impl WalEvents {
     fn path(&self) -> String {
         self.db_path.to_string_lossy().into_owned()
     }
+
+    fn close(&self) {}
 }
 
 #[pyfunction]
