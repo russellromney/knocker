@@ -41,6 +41,38 @@ await webhooks.run_retention(policy, stop_event=stop)
 ```
 
   </TabItem>
+  <TabItem label="Raw SQL">
+
+```sql
+SELECT knocker_prune_events(
+  json_array('handled', 'ignored'),
+  1700000000,
+  100,
+  'knocker.events'
+) AS summary_json;
+
+SELECT knocker_prune_orphan_deliveries(
+  1700000000,
+  100,
+  'knocker.events'
+) AS summary_json;
+
+SELECT knocker_run_retention_pass(
+  json_array('handled', 'ignored'),
+  unixepoch() - (7 * 24 * 60 * 60),
+  100,
+  unixepoch() - (24 * 60 * 60),
+  100,
+  'knocker.events'
+) AS summary_json;
+
+SELECT id, kind, executed_at, events_pruned, deliveries_pruned, summary_json
+FROM knocker_prune_audits
+ORDER BY executed_at DESC, id DESC
+LIMIT 50;
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts

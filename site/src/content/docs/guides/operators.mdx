@@ -35,6 +35,33 @@ webhooks.replay_delivery(delivery.id)
 ```
 
   </TabItem>
+  <TabItem label="Raw SQL">
+
+```sql
+SELECT e.id, ep.name AS endpoint, e.event_type, e.status, e.last_error
+FROM knocker_events e
+JOIN knocker_endpoints ep ON ep.id = e.endpoint_id
+ORDER BY e.id DESC
+LIMIT 50;
+
+SELECT d.id, d.event_id, ep.name AS endpoint, d.signature_valid, d.signature_error
+FROM knocker_deliveries d
+JOIN knocker_endpoints ep ON ep.id = d.endpoint_id
+WHERE ep.name = 'stripe'
+  AND d.signature_valid = 0
+ORDER BY d.received_at DESC
+LIMIT 50;
+
+SELECT knocker_mark_ignored(:event_id, 0);
+SELECT knocker_replay(:event_id, 'knocker.events', 3);
+SELECT knocker_requeue(:event_id, 'knocker.events', 3);
+
+-- replay_delivery is a binding helper over a selected delivery body:
+-- reset the event, clear stale live jobs for that event, then enqueue
+-- {"event_id": ..., "delivery_id": ...} with honker_enqueue(...).
+```
+
+  </TabItem>
   <TabItem label="Bun">
 
 ```ts

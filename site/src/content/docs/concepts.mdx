@@ -1,0 +1,101 @@
+---
+title: Concepts
+description: "The small Knocker model: deliveries, events, workers, retries, and SQLite-shaped guarantees."
+---
+
+Knocker is intentionally small. It gives your app a durable inbound webhook
+inbox inside SQLite, plus a worker path for processing stored events later.
+
+The whole model is:
+
+```text
+HTTP request -> Delivery row -> Event row -> Honker-backed queue job -> handler transaction
+```
+
+## Delivery
+
+A `Delivery` is one HTTP receipt. Knocker stores the raw body, headers,
+query params, verification outcome, provider identifiers, and any signature
+error it can explain.
+
+Invalid requests still become delivery rows when Knocker can identify the
+endpoint. That gives operators evidence instead of a vanished failed HTTP
+request.
+
+## Event
+
+An `Event` is the unit your business logic processes. Valid deliveries
+create or correlate to an event using the provider's stable identity or the
+dedupe key you supplied.
+
+Provider retries should usually create more delivery rows, not duplicate
+business work. That is why Knocker separates receipt history from event
+processing state.
+
+## Receive vs Ingest
+
+Use `receive(...)` in normal routes. It verifies provider signatures,
+extracts provider metadata, stores a delivery, creates or correlates an
+event when valid, and returns the HTTP status code you should send back.
+
+Use `ingest(...)` only when another trusted layer has already made the
+verification decision and you want to pass that decision into Knocker.
+
+## Worker
+
+A worker opens the same SQLite file, claims queued event work, resolves the
+handler by endpoint plus event type, and runs your handler with the stored
+event.
+
+Workers may run in the same process as your HTTP route or in separate
+processes. The coordination point is the SQLite file.
+
+## Handler Transaction
+
+Handlers receive a transaction handle. Business writes made through that
+handle commit with Knocker's handled transition and queue acknowledgement.
+
+If the handler raises, Knocker rolls back those business writes first, then
+records retry or dead-letter state in a fresh bookkeeping step.
+
+## Replay, Requeue, Ignore
+
+Operators can:
+
+- `replay` a handled event using its canonical event body
+- `requeue` a failed, dead, or ignored event
+- `replay_delivery` a specific stored delivery body
+- `ignore` a received, failed, or dead event
+
+These are lifecycle operations on stored rows, not calls back to the
+provider.
+
+## Retention
+
+Knocker does not silently delete history. Retention is explicit and audited:
+you choose statuses, cutoffs, and limits, and Knocker writes a prune audit
+row even for successful no-op runs.
+
+Automated retention is just a scheduled form of the same bounded SQLite
+prune pass.
+
+## SQLite-Shaped Guarantee
+
+Knocker does not promise magic stronger than SQLite.
+
+If the relevant SQLite transaction committed, Knocker state committed. If
+it rolled back or never committed, Knocker state did not durably change.
+
+Use your normal SQLite production choices: a real file, WAL where it fits
+your deployment, sensible synchronous settings, backups, and one shared
+file per Knocker deployment.
+
+## Where The Logic Lives
+
+The important product semantics live in the loadable SQLite extension and
+Rust core: receive, provider verification, dedupe, lifecycle transitions,
+retention, and the queue-facing primitives.
+
+Language bindings are intentionally thin. They adapt request objects,
+handler registration, transactions, and worker loops to each runtime while
+calling the same SQLite contract underneath.

@@ -8,10 +8,13 @@ hero:
     file: ../../assets/logo-transparent.png
     alt: knocker logo
   actions:
-    - text: Pick a binding
+    - text: Quick start
       link: /getting-started/
       icon: right-arrow
       variant: primary
+    - text: Concepts
+      link: /concepts/
+      icon: right-arrow
     - text: GitHub
       link: https://github.com/russellromney/knocker
       icon: external
@@ -27,6 +30,15 @@ webhook events without adding a hosted control plane.
 Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create
 or correlate to a stored `Event`. A worker in the same process or another
 process runs later against rows already committed to SQLite.
+
+## Start Here
+
+New to Knocker? Read the [quick start](/getting-started/) first. It explains
+the shape, shows the same tiny webhook flow in each runtime, and includes
+the raw SQL extension calls underneath the bindings.
+
+Then read [Concepts](/concepts/) for the mental model: deliveries, events,
+workers, retries, retention, and the SQLite-shaped durability guarantee.
 
 ## Pick Your Runtime
 

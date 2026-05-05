@@ -1,15 +1,15 @@
 ---
-title: Framework integration
-description: Call Knocker from your own HTTP route without adding framework adapters.
+title: Frameworks and ORMs
+description: Wire Knocker into your own HTTP routes and handler transactions.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Knocker intentionally does not ship framework adapters. Your app owns HTTP
-routing; Knocker owns durable webhook storage, verification, dedupe, and
-later handler dispatch.
+routing and ORM choices; Knocker owns durable webhook storage,
+verification, dedupe, and later handler dispatch.
 
-## Why Route Glue Beats A Shipped Adapter
+## Web Frameworks
 
 A framework adapter would still need to read your framework's request
 object, preserve the raw signed body, pass headers through, and return a
@@ -46,6 +46,33 @@ async def provider_webhook(request: Request):
         query=dict(request.query_params),
     )
     return Response(status_code=result.status_code)
+```
+
+  </TabItem>
+  <TabItem label="Raw SQL">
+
+```sql
+-- Bind these from your framework route:
+-- :body_blob is the exact raw request body bytes.
+-- :headers_json and :query_json are JSON objects from the request.
+SELECT knocker_receive(
+  'provider',
+  'token-header',
+  json_array('dev-secret'),
+  json_object(),
+  'POST',
+  :headers_json,
+  :body_blob,
+  :query_json,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  'knocker.events',
+  3
+) AS result_json;
+
+-- Return json_extract(result_json, '$.status_code') to the webhook sender.
 ```
 
   </TabItem>
@@ -153,6 +180,131 @@ post "/webhooks/provider" do
   )
 
   status result["status_code"]
+end
+```
+
+  </TabItem>
+</Tabs>
+
+## ORMs And App Writes
+
+The handler transaction is the important integration point for ORMs. If
+your handler writes app state, do it through Knocker's transaction handle
+or through an ORM session/connection bound to that same SQLite transaction.
+
+Do not open a second independent SQLite connection inside the handler and
+expect it to be part of the webhook acknowledgement transaction. That second
+connection may commit even if the handler later fails.
+
+In the examples below, helper names like `insertInvoiceUsingKnockerTx(...)`
+stand in for your ORM/repository code bound to Knocker's transaction handle.
+The point is the ownership boundary: app writes and Knocker's handled/ack
+transition share one SQLite transaction.
+
+<Tabs>
+  <TabItem label="Python">
+
+```python
+import json
+
+@automation.handle("invoice.created")
+def handle_invoice(event, tx):
+    payload = json.loads(event.body)
+    tx.execute(
+        "INSERT INTO invoices(provider_id, total_cents) VALUES (?, ?)",
+        [payload["id"], payload["data"]["object"]["amount_due"]],
+    )
+```
+
+  </TabItem>
+  <TabItem label="Raw SQL">
+
+```sql
+BEGIN IMMEDIATE;
+
+-- Bindings do this around your handler:
+SELECT knocker_mark_processing(:event_id, :attempt_count);
+
+-- Your ORM/app write must use this same transaction.
+INSERT INTO invoices(provider_id, total_cents)
+VALUES (:provider_id, :total_cents);
+
+SELECT knocker_mark_handled(:event_id, :duration_ms);
+SELECT honker_ack(:job_id, :worker_id);
+
+COMMIT;
+```
+
+  </TabItem>
+  <TabItem label="Bun">
+
+```ts
+webhooks.registerHandler("stripe", (event, tx) => {
+  const payload = JSON.parse(String(event.body_blob));
+  insertInvoiceUsingKnockerTx(tx, {
+    providerId: payload.id,
+    totalCents: payload.data.object.amount_due,
+  });
+}, "invoice.created");
+```
+
+  </TabItem>
+  <TabItem label="Elixir">
+
+```elixir
+webhooks =
+  KnockerSqlite.register_handler(webhooks, "stripe", "invoice.created", fn event, tx ->
+    payload = Jason.decode!(event["body_blob"])
+
+    insert_invoice_using_knocker_tx(tx, %{
+      provider_id: payload["id"],
+      total_cents: payload["data"]["object"]["amount_due"]
+    })
+  end)
+```
+
+  </TabItem>
+  <TabItem label="Go">
+
+```go
+webhooks.RegisterEventHandler("stripe", "invoice.created", func(event knockersqlite.Event, tx *knockersqlite.Tx) error {
+    var payload StripeInvoiceEvent
+    if err := json.Unmarshal(event.Body, &payload); err != nil {
+        return err
+    }
+    _, err := tx.Exec(
+        "INSERT INTO invoices(provider_id, total_cents) VALUES (?, ?)",
+        payload.ID,
+        payload.Data.Object.AmountDue,
+    )
+    return err
+})
+```
+
+  </TabItem>
+  <TabItem label="Node">
+
+```js
+webhooks.registerHandler("stripe", "invoice.created", (event, tx) => {
+  const payload = JSON.parse(Buffer.from(event.body_blob).toString("utf8"));
+  tx.prepare(`
+    INSERT INTO invoices(provider_id, total_cents)
+    VALUES (?, ?)
+  `).run(payload.id, payload.data.object.amount_due);
+});
+```
+
+  </TabItem>
+  <TabItem label="Ruby">
+
+```ruby
+webhooks.register_handler("stripe", event_type: "invoice.created") do |event, tx|
+  payload = JSON.parse(event["body_blob"])
+  insert_invoice_using_knocker_tx(
+    tx,
+    provider_id: payload["id"],
+    total_cents: payload["data"]["object"]["amount_due"],
+  )
 end
 ```
 

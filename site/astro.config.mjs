@@ -40,14 +40,15 @@ export default defineConfig({
           label: 'Start here',
           items: [
             { label: 'Home', slug: 'index' },
+            { label: 'Quick start', slug: 'getting-started' },
+            { label: 'Concepts', slug: 'concepts' },
             { label: 'Docs overview', slug: 'docs' },
-            { label: 'Getting started', slug: 'getting-started' },
           ],
         },
         {
           label: 'Guides',
           items: [
-            { label: 'Framework integration', slug: 'guides/framework-integration' },
+            { label: 'Frameworks and ORMs', slug: 'guides/framework-integration' },
             { label: 'Verified ingress', slug: 'guides/verified-ingress' },
             { label: 'Contributing providers', slug: 'guides/contributing-providers' },
             { label: 'Operator surface', slug: 'guides/operators' },
@@ -58,7 +59,7 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
-            { label: 'Binding overview', slug: 'reference/sqlite-bindings' },
+            { label: 'SQLite contract', slug: 'reference/sqlite-bindings' },
             { label: 'Bun binding', slug: 'reference/bun' },
             { label: 'Elixir binding', slug: 'reference/elixir' },
             { label: 'Go binding', slug: 'reference/go' },

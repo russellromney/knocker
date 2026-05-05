@@ -1,28 +1,67 @@
 ---
-title: Docs
-description: Getting started, operator guidance, and reference for Knocker.
+title: Docs overview
+description: The recommended path through Knocker docs.
 ---
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Knocker is a loadable SQLite extension plus language bindings. Durable webhook semantics live in Rust and SQLite, while each binding adapts its host language to the same stored contract.
+Knocker is a loadable SQLite extension plus thin language bindings. The
+durable webhook semantics live in Rust and SQLite; the bindings keep your
+host-language code pleasant.
 
-If you're new, read [Getting started](/getting-started/) and pick your runtime. If you're wiring Knocker into an existing web app, start with [Framework integration](/guides/framework-integration/). Otherwise, pick the job you need:
+If you are new, use this order:
+
+1. [Quick start](/getting-started/) to see the whole flow once.
+2. [Concepts](/concepts/) to understand deliveries, events, workers, and
+   SQLite-shaped guarantees.
+3. Pick your language page for install and API details.
+4. Use [Frameworks and ORMs](/guides/framework-integration/) to wire routes
+   and handler transactions into your app.
+5. Read the operator guides when you need replay, retention, or production
+   runbooks.
+
+## Start
 
 <CardGrid>
-  <LinkCard title="Getting started" href="/getting-started/" description="Pick a binding, register an endpoint, store a webhook, and run a worker." />
-  <LinkCard title="Binding overview" href="/reference/sqlite-bindings/" description="Bun, Elixir, Go, Node, Python, and Ruby pages over the shared SQLite contract." />
-  <LinkCard title="Framework integration" href="/guides/framework-integration/" description="Copy-paste route recipes for common host apps." />
+  <LinkCard title="Quick start" href="/getting-started/" description="Store a webhook, run a worker, and see the same flow in Python, raw SQL, Bun, Elixir, Go, Node, and Ruby." />
+  <LinkCard title="Concepts" href="/concepts/" description="The small Knocker model: Delivery, Event, Worker, transaction, retry, replay, and retention." />
+  <LinkCard title="SQLite contract" href="/reference/sqlite-bindings/" description="The extension functions and shared baseline all bindings sit on top of." />
+</CardGrid>
+
+## Languages
+
+<CardGrid>
+  <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
+  <LinkCard title="Elixir" href="/reference/elixir/" description="Install and use Knocker from Elixir." />
+  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
+  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
+  <LinkCard title="Python" href="/reference/python/" description="Install and use Knocker from Python." />
+  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
+</CardGrid>
+
+## Build Your App
+
+<CardGrid>
+  <LinkCard title="Frameworks and ORMs" href="/guides/framework-integration/" description="Route glue and transaction patterns for each runtime." />
   <LinkCard title="Verified ingress" href="/guides/verified-ingress/" description="Provider presets, secret rotation, custom verification, and dedupe keys." />
-  <LinkCard title="Contributing a curated provider" href="/guides/contributing-providers/" description="Repo catalog, metadata, and conformance fixtures for a built-in provider." />
+  <LinkCard title="Contributing providers" href="/guides/contributing-providers/" description="Repo catalog, metadata, and conformance fixtures for a built-in provider." />
+</CardGrid>
+
+## Operate It
+
+<CardGrid>
   <LinkCard title="Operator surface" href="/guides/operators/" description="List, inspect, ignore, replay, and requeue stored events and deliveries." />
   <LinkCard title="Operator runbook" href="/guides/operator-runbook/" description="A 3 AM checklist for dead events, invalid deliveries, worker failures, and pruning." />
   <LinkCard title="Retention and pruning" href="/guides/retention/" description="Explicit, bounded pruning for handled, ignored, and orphan-delivery rows." />
   <LinkCard title="Roadmap" href="/roadmap/" description="What is still ahead after 0.1.0." />
 </CardGrid>
 
-## What's not here
+## What's Not Here
 
-Framework adapters for FastAPI, Flask, Django, Rails, Express, and friends are not shipped. Wiring Knocker into a web framework is route glue: read the raw body, pass headers/query to `receive(...)`, return `result.status_code`.
+Knocker does not ship web-framework adapters. Wiring it into FastAPI,
+Express, Rails, Phoenix, Gin, Django, Flask, or similar frameworks is route
+glue: read the raw body, pass headers/query to `receive(...)`, return
+`result.status_code`.
 
-Out of scope on purpose: hosted relays, operator API servers, HTML control planes, generic queue APIs, and exactly-once side effects.
+Out of scope on purpose: hosted relays, operator API servers, HTML control
+planes, generic queue APIs, and exactly-once side effects.

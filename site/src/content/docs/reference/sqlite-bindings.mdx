@@ -1,15 +1,77 @@
 ---
-title: Binding overview
-description: Bun, Elixir, Go, Node, Python, and Ruby bindings over Knocker's shared SQLite contract.
+title: SQLite contract
+description: The loadable extension functions and shared baseline used by every Knocker binding.
 ---
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
 Knocker's language bindings are thin runtime surfaces over the same loadable
 SQLite extension. Curated `receive(...)` calls delegate to shared Rust/SQLite
-code, and queue/lifecycle operations go through the same SQLite functions.
+code, and queue/lifecycle operations go through SQLite functions exposed by
+the extension.
 
-## Binding Pages
+This page is the contract underneath the bindings. You usually do not need
+to write raw SQL in app code, but it is useful for understanding, debugging,
+and proving that every binding is doing the same thing.
+
+## Raw SQL Shape
+
+```sql
+.load ./target/release/libknocker_ext
+SELECT knocker_bootstrap();
+
+SELECT knocker_endpoint_upsert(
+  'stripe',
+  '/webhooks/stripe',
+  'stripe',
+  1
+);
+
+SELECT knocker_receive(
+  'stripe',
+  'stripe',
+  json_array('whsec_...'),
+  json_object('tolerance_s', 300),
+  'POST',
+  :headers_json,
+  :body_blob,
+  :query_json,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  'knocker.events',
+  3
+) AS result_json;
+```
+
+`result_json` contains the verification and storage outcome, including the
+HTTP status code your route should return.
+
+## Important Functions
+
+| Function | Purpose |
+| --- | --- |
+| `knocker_bootstrap()` | Creates Knocker and Honker tables in the current SQLite database. |
+| `knocker_endpoint_upsert(name, path, provider, enabled)` | Registers or updates an endpoint row. |
+| `knocker_receive(...)` | Verifies a curated provider request, stores a delivery, and creates/correlates an event. |
+| `knocker_ingest(...)` | Stores a trusted delivery when verification happened elsewhere. |
+| `knocker_mark_processing(event_id, attempt_count)` | Moves an event into processing during a worker transaction. |
+| `knocker_mark_handled(event_id, duration_ms)` | Marks an event handled and records attempt history. |
+| `knocker_mark_failed(event_id, attempt_count, error, terminal, duration_ms)` | Records retry/dead-letter state after a handler failure. |
+| `knocker_mark_ignored(event_id, duration_ms)` | Operator-ignore transition. |
+| `knocker_replay(event_id, queue_name, max_attempts)` | Re-enqueues a handled event using its canonical event body. |
+| `knocker_requeue(event_id, queue_name, max_attempts)` | Re-enqueues failed, dead, or ignored events. |
+| `knocker_prune_events(statuses_json, older_than, limit, queue_name)` | Bounded event pruning with audit rows. |
+| `knocker_prune_orphan_deliveries(older_than, limit, queue_name)` | Bounded orphan delivery pruning with audit rows. |
+| `knocker_run_retention_pass(...)` | One bounded retention pass for events and orphan deliveries. |
+
+Worker claiming and acknowledgement use Honker functions such as
+`honker_claim_batch(...)`, `honker_ack(...)`, `honker_retry(...)`, and
+`honker_fail(...)`. Bindings wrap those with endpoint/event-type handler
+dispatch, rollback behavior, and long-running worker loops.
+
+## Language Pages
 
 <CardGrid>
   <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />

@@ -1,12 +1,38 @@
 ---
-title: Getting started
-description: Pick a binding, store a webhook, and run a worker.
+title: Quick start
+description: Store a webhook, run a worker, and see the SQLite contract underneath.
 ---
 
 import { LinkCard, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Knocker is a loadable SQLite extension with thin language bindings. Start
-with the binding for the runtime you actually use:
+This page shows the whole Knocker shape once:
+
+1. open a SQLite database
+2. register a webhook endpoint
+3. receive an HTTP webhook into durable rows
+4. run a worker against the same SQLite file
+5. handle the stored event inside Knocker's transaction
+
+The examples default to Python because it is compact, but every tab is the
+same product flow over the same SQLite extension.
+
+## Basic Ideas
+
+Knocker stores every receipt as a `Delivery`. Valid receipts create or
+correlate to an `Event`. Workers process events later, either in the same
+process as your HTTP route or from another process opening the same SQLite
+file.
+
+Handlers receive a stored event plus a transaction handle. Business writes
+through that transaction commit atomically with Knocker's handled transition
+and queue acknowledgement. If the handler fails, those writes roll back
+before Knocker records retry/dead-letter state.
+
+For the deeper mental model, read [Concepts](/concepts/) after this page.
+
+## Pick A Runtime
+
+Start with the binding for the runtime you actually use:
 
 <CardGrid>
   <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
@@ -16,29 +42,6 @@ with the binding for the runtime you actually use:
   <LinkCard title="Python" href="/reference/python/" description="Install and use Knocker from Python." />
   <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
 </CardGrid>
-
-## Same Shape Everywhere
-
-Every binding follows the same product flow:
-
-```text
-open a SQLite database
-register an endpoint with a curated provider and secrets
-read the raw HTTP request body and headers in your route
-call receive(...)
-return result.status_code to the webhook sender
-run a worker against the same SQLite file
-handle the stored event inside Knocker's transaction
-```
-
-`receive(...)` verifies the request, stores a `Delivery`, and, when valid,
-creates or correlates a durable `Event`. Workers can run in the same process
-as ingress or in another process that opens the same SQLite file.
-
-Handlers receive a stored event plus a transaction handle. Business writes
-through that transaction commit atomically with Knocker's handled transition
-and queue acknowledgement. If the handler fails, those writes roll back
-before Knocker records retry/dead-letter state.
 
 ## Minimal Example
 
@@ -71,6 +74,43 @@ worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
 await asyncio.sleep(0.1)
 stop.set()
 await worker
+```
+
+  </TabItem>
+  <TabItem label="Raw SQL">
+
+```sql
+-- Load the extension using your SQLite client, then bootstrap Knocker.
+.load ./target/release/libknocker_ext
+SELECT knocker_bootstrap();
+
+SELECT knocker_endpoint_upsert(
+  'automation',
+  '/webhooks/automation',
+  'token-header',
+  1
+);
+
+SELECT knocker_receive(
+  'automation',
+  'token-header',
+  json_array('dev-secret'),
+  json_object(),
+  'POST',
+  json_object('X-Knocker-Token', 'dev-secret'),
+  CAST('{"id":"evt_1","type":"invoice.created"}' AS BLOB),
+  json_object(),
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  'knocker.events',
+  3
+) AS result_json;
+
+SELECT e.id, ep.name AS endpoint, e.event_type, e.status
+FROM knocker_events e
+JOIN knocker_endpoints ep ON ep.id = e.endpoint_id;
 ```
 
   </TabItem>
@@ -232,7 +272,8 @@ webhooks.run_worker(worker_id: "ruby-worker", max_jobs: 1)
 
 ## What To Read Next
 
+- [Concepts](/concepts/) for the model behind deliveries, events, workers, and retries.
 - [Verified ingress](/guides/verified-ingress/) for provider names, secrets, and options.
-- [Framework integration](/guides/framework-integration/) for route glue.
+- [Frameworks and ORMs](/guides/framework-integration/) for route glue and transaction patterns.
 - [Operator surface](/guides/operators/) for reads, replay, requeue, ignore, and delivery replay.
 - [Retention and pruning](/guides/retention/) for manual and automated cleanup.
