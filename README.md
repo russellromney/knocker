@@ -58,7 +58,7 @@ def webhook_route(raw_body_bytes, headers, query_params):
 
 - Store every inbound webhook receipt durably before returning provider success
 - Deduplicate provider retries into one event-level processing unit
-- Verify requests with Stripe or generic HMAC-SHA256, including overlapping active secrets for rotation
+- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy, plus the legacy generic HMAC-SHA256 path
 - Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries
 - Run synchronous handlers later with retries, dead-lettering, replay, and requeue
 - Commit handler business writes atomically with Knocker's handled transition and queue ack
@@ -121,7 +121,11 @@ See the [Operator runbook](https://knocker.dev/guides/operator-runbook/) for the
 - `knocker-core/`: Rust core for Knocker-owned SQLite semantics
 - `knocker-extension/`: loadable SQLite extension for cross-language contract testing
 - `packages/knocker/`: Python binding
-- `packages/knocker-node/`: Node smoke-test binding for the shared SQLite contract
+- `packages/knocker-node/`: minimal Node binding over the shared SQLite contract
+- `packages/knocker-bun/`: minimal Bun binding over the shared SQLite contract
+- `packages/knocker-ruby/`: minimal Ruby binding over the shared SQLite contract
+- `packages/knocker-go/`: minimal Go binding over the shared SQLite contract
+- `packages/knocker-elixir/`: minimal Elixir binding over the shared SQLite contract
 - `site/`: Astro/Starlight docs site for `knocker.dev`
 - `SYSTEM.md`: current English model of the system
 - `.intent/phases/`: spec diffs, plans, reviews, and commit records

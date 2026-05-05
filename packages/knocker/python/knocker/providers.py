@@ -175,14 +175,40 @@ def _builtin_providers() -> tuple[Provider, ...]:
 
     from knocker._builtin_stripe import _StripeProvider
     from knocker._builtin_github import _GitHubProvider
+    from knocker._builtin_shopify import _ShopifyProvider
+    from knocker._builtin_slack import _SlackProvider
+    from knocker._builtin_postmark import _PostmarkProvider
+    from knocker._builtin_resend import _ResendProvider
+    from knocker._builtin_paddle import _PaddleProvider
+    from knocker._builtin_lemonsqueezy import _LemonSqueezyProvider
 
-    return (_StripeProvider(), _GitHubProvider())
+    return (
+        _StripeProvider(),
+        _GitHubProvider(),
+        _ShopifyProvider(),
+        _SlackProvider(),
+        _PostmarkProvider(),
+        _ResendProvider(),
+        _PaddleProvider(),
+        _LemonSqueezyProvider(),
+    )
 
 
 def _builtin_provider_names() -> frozenset[str]:
     """Reserved built-in provider names that cannot be overridden."""
 
-    return frozenset({"stripe", "github"})
+    return frozenset(
+        {
+            "stripe",
+            "github",
+            "shopify",
+            "slack",
+            "postmark",
+            "resend",
+            "paddle",
+            "lemon-squeezy",
+        }
+    )
 
 
 def _coerce_secrets(values: Any) -> tuple[bytes, ...]:
@@ -251,13 +277,35 @@ def _parse_stripe_signature(header_value: str) -> tuple[int, list[str]]:
 
 
 def _json_string_field(body: bytes, field: str) -> Optional[str]:
-    try:
-        value = json.loads(body)
-    except (TypeError, json.JSONDecodeError):
-        return None
+    value = _json_object(body)
     if not isinstance(value, dict):
         return None
     result = value.get(field)
     if result is None:
         return None
     return str(result)
+
+
+def _json_object(body: bytes) -> Any:
+    try:
+        return json.loads(body)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def _json_string_path(body: bytes, *path: str) -> Optional[str]:
+    value = _json_object(body)
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    if value is None:
+        return None
+    return str(value)
+
+
+def _first_non_empty(*values: Optional[str]) -> Optional[str]:
+    for value in values:
+        if value:
+            return value
+    return None

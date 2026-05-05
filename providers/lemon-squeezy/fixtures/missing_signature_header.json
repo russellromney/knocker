@@ -1,0 +1,18 @@
+{
+  "description": "Missing X-Signature rejects before HMAC comparison and still preserves extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Event-Name": "order_created"
+    },
+    "query": {},
+    "body": "{\"meta\":{\"event_name\":\"order_created\"},\"data\":{\"attributes\":{\"identifier\":\"ls-order-3\"}}}",
+    "secrets": ["lemon-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "missing signature header: x-signature",
+    "provider_event_id": "ls-order-3",
+    "event_type": "order_created"
+  }
+}

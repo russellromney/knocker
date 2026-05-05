@@ -43,20 +43,24 @@ Implemented in this repo today:
 - Rust-backed ingress contract with append-only `Delivery` rows, deduped `Event` rows, and Honker enqueue
 - Rust-backed event lifecycle transitions
 - Python binding built with PyO3 and a thin Python wrapper
-- Python verified ingress for generic HMAC-SHA256 plus curated built-in providers for Stripe and GitHub (resolved via the reserved `provider="stripe"` / `provider="github"` string names)
+- Python verified ingress for generic HMAC-SHA256 plus curated built-in providers for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy (resolved via the reserved `provider="..."` string names)
 - Public Python provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.provider_versions`) with the instance path on `add_endpoint(provider=AcmeProvider(), ...)` as the only path for app-local and community providers — no global string-lookup registry
 - Binding-owned active-secret rotation for supported verifiers
 - Stable Python operator surface for `get_event`, `list_events`, `get_delivery`, `list_deliveries`, `ignore`, `replay`, and `requeue`
 - Explicit `replay_delivery(delivery_id)` operator recovery for processing one stored receipt body without mutating the canonical event payload
 - Local Python worker state snapshots and optional worker-loop `on_error` callbacks
 - Minimal explicit Python pruning surface for `prune_events` and `prune_orphan_deliveries`
-- Node contract pressure-test via a loadable SQLite extension
+- Python-first retention automation via `RetentionPolicy` plus `run_retention(...)`, backed by Honker Scheduler and the shared core retention-pass primitive
+- Runtime confidence coverage for SQLite-shaped guarantees, including a subprocess-kill ingest test, fresh-process reopen coverage, and claim-expiry recovery after reopen
+- Local `bench/knocker_bench.py` plus loose CI-facing performance-floor tests for durable ingress and no-op-handler worker drain
+- Phase-011 throughput exploration with corrected benchmark shape, bounded contention probes, and explicit evidence that multiple independent `knocker.open(...)` handles on one SQLite file are a degraded contention mode rather than the performance baseline
+- Phase-012 worker-throughput improvements: the production worker now claims jobs in small batches, drains already-claimed local buffered jobs before stopping, and documents one long-lived `knocker.open(...)` per process as the normal hot-path shape
+- Minimal shared-contract bindings for Node, Bun, Ruby, Go, and Elixir, each proved through a real runtime-level end-to-end flow (bootstrap/open, endpoint registration, ingest, one worker-processing path, stored-state reads, and replay)
 - `knockerlite` published on PyPI with Linux and macOS wheels and a tag-driven GitHub Actions release workflow
 
 Still intentionally not implemented:
 
-- automatic retention jobs and richer retention policy
-- cross-binding operator parity beyond the Python surface
+- broader cross-binding operator parity beyond the Python surface
 - runtime / native / WASM provider loading and automatic provider discovery (the repo-level `providers/<name>/` source-only catalog landed in Phase 008)
 - Windows wheels (blocked on a `honker-core` Windows file-identity fix)
 - PyPI trusted publishing (currently uses an API token; OIDC migration is queued)
@@ -67,7 +71,13 @@ The 006 follow-up queue (docstrings, code comments, and the four missing tests) 
 
 Code organization:
 
-- Consider exposing a core `knocker_reset_event` UDF so Python `replay_delivery(...)` and Rust replay/requeue share exactly one reset implementation.
+Closed in Phase 009 (`retention-audit-and-reset-unification`):
+
+- `knocker_reset_event(...)` is the single core reset primitive for event recovery. It is a low-level primitive with no source-state validation; callers enforce their own preconditions.
+- `knocker_prune_audits` table with stable top-level columns plus `summary_json`, created as part of the single supported Knocker schema.
+- `list_prune_audits(kind=None, since=None, limit=50)` operator read helper returning `PruneAudit` rows newest-first.
+- `prune_events(...)` and `prune_orphan_deliveries(...)` write one durable audit row per call in the same transaction, including no-op prunes with zero counts.
+- Audit rows are never targeted by ordinary prune operations.
 
 Closed in Phase 008 (`provider-conformance-and-internal-cleanup`):
 
@@ -79,8 +89,7 @@ Trust polish (post-`0.1.0`):
 - Restore Windows wheels once `honker-core` ships its Windows file-identity fix; re-add Windows to the release matrix and CI.
 - Migrate the PyPI release workflow from API token auth to PyPI trusted publishing (OIDC).
 - Reconsider runtime provider loading and a cross-binding provider catalog only after ordinary host-language provider registration proves insufficient.
-- Extend retention: a per-prune audit row, richer policy options, explicit answers to "what did we delete, when, and why."
-- Publish honest ingress/worker throughput numbers.
+- Richer retention policy options beyond the current Python-first in-process automation.
 
 ## Product Direction
 
@@ -226,11 +235,11 @@ This bootstrap must be safe to run:
 - before worker startup
 - during tests
 
-Bootstrap must use an idempotent migration story:
+Bootstrap must use an idempotent current-schema story:
 
 - `CREATE TABLE IF NOT EXISTS`
 - `CREATE INDEX IF NOT EXISTS`
-- schema-version-based migrations for changes that cannot be expressed that way
+- explicit validation that the opened database matches the current Knocker schema
 
 Calling bootstrap multiple times should never be surprising.
 
@@ -595,7 +604,7 @@ Deliverables:
 
 - crate layout
 - idempotent bootstrap
-- schema versioning
+- one canonical Knocker schema
 - Knocker tables and indexes
 - explicit Honker dependency pinning strategy
 
@@ -802,7 +811,6 @@ The first serious test suite should prove:
 Later, add:
 
 - crash-recovery coverage
-- migration tests
 - provider verification tests
 - performance regression checks once baseline benchmarks exist
 

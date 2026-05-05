@@ -1,0 +1,21 @@
+{
+  "description": "Timestamp outside the configured Slack tolerance window should reject with the tolerance error while keeping extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Slack-Request-Timestamp": "1714000000",
+      "X-Slack-Signature": "v0=3df5cc880b10ad1bda42cb88f1f580e4dcc9023442168e52553dc0bad4e59b89"
+    },
+    "query": {},
+    "body": "{\"type\":\"event_callback\",\"event_id\":\"Ev125\",\"event\":{\"type\":\"app_mention\"}}",
+    "secrets": ["slack-secret"],
+    "provider_options": {"tolerance_s": 300},
+    "now_s": 1714000600
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "outside tolerance",
+    "provider_event_id": "Ev125",
+    "event_type": "app_mention"
+  }
+}

@@ -19,6 +19,11 @@ app = knocker.open(
 )
 ```
 
+For hot paths, prefer one long-lived `knocker.open(...)` per process and
+reuse it for ingress plus local workers. Opening many independent Knocker
+handles against the same SQLite file is supported, but it is a degraded
+contention mode rather than the normal performance posture.
+
 ## Endpoint and handler registration
 
 ```python
@@ -35,7 +40,9 @@ def handle_checkout(event, tx):
     ...
 ```
 
-`provider` accepts either a curated string name (`"stripe"`, `"github"`)
+`provider` accepts either a curated string name (`"stripe"`, `"github"`,
+`"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`,
+`"lemon-squeezy"`)
 or a `knocker.Provider` instance for app-local / community providers.
 Curated string names are reserved for built-ins; non-curated providers
 should pass an instance. Unknown string names raise `ValueError` at
@@ -72,11 +79,11 @@ app.add_endpoint(
 )
 
 versions = app.provider_versions()
-# {"stripe": "1.0.0", "github": "1.0.0"}
+# {"stripe": "1.0.0", "github": "1.0.0", "shopify": "1.0.0", ...}
 ```
 
 `provider_versions()` returns a fresh `dict[str, str]` snapshot of the
-curated built-ins (`stripe`, `github`). Instance-path providers are
+curated built-ins. Instance-path providers are
 scoped to one endpoint and do not appear here; there is no global
 string-lookup registry for non-curated providers.
 
@@ -169,13 +176,32 @@ states = app.worker_states()
 ```
 
 Worker state is local and non-durable. Host apps own restart/supervision policy.
+The production worker claims jobs in small batches internally and drains
+already-claimed buffered jobs before honoring a stop signal.
 
 ## Retention
 
 ```python
 summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
 orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
+
+audits = app.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
+
+policy = knocker.RetentionPolicy(
+    interval_s=3600,
+    event_older_than_s=7 * 24 * 60 * 60,
+    orphan_deliveries_older_than_s=24 * 60 * 60,
+)
+await app.run_retention(policy, stop_event=stop)
 ```
+
+`run_retention(...)` is Python-first in API shape but Honker-backed in
+execution. It registers recurring work through Honker Scheduler, and each
+retention job calls the shared core retention-pass primitive, so automated runs write the
+same durable prune audit rows as manual calls. Multiple processes may run
+retention workers against the same SQLite file without duplicate prune runs;
+one process/instance should still be treated as the source of truth for
+retention configuration.
 
 ## Result types
 
@@ -219,6 +245,27 @@ orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
 - `received_at`
 - `signature_valid`
 - `signature_error`
+
+`PruneAudit`
+
+- `id`
+- `kind`: `'prune_events'` or `'prune_orphan_deliveries'`
+- `queue_name`
+- `executed_at`
+- `events_pruned`
+- `deliveries_pruned`
+- `attempts_pruned`
+- `live_jobs_pruned`
+- `summary_json`
+
+`RetentionPolicy`
+
+- `interval_s`
+- `event_statuses`
+- `event_older_than_s`
+- `event_limit`
+- `orphan_deliveries_older_than_s`
+- `orphan_deliveries_limit`
 
 `PruneEventsResult`
 

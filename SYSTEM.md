@@ -34,16 +34,23 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 - Honker job payloads should only point at stored event ids, with an optional stored delivery id for explicit operator delivery replay.
 - Ingress durability means the delivery insert, event correlation decision, optional event insert, and Honker enqueue commit together before HTTP success.
 - After a Honker job has been claimed, Knocker event state and Honker job disposition must commit together in one transaction.
+- Knocker claims SQLite-shaped guarantees, not stronger bespoke crash semantics:
+  - if the relevant SQLite transaction committed, Knocker state committed
+  - if it rolled back or never committed, Knocker state did not durably change
+  - reopening the same SQLite file should reveal that same durable truth
 - A missing handler is a failure, not an `ignored` outcome.
 - Invalid signatures create `Delivery` rows only. They do not create `Event` rows and they are never represented as `ignored`.
-- For events created under the v2 model, `ignored` means intentionally not processed by operator or application policy.
-- Migrated v1 `ignored` rows may still carry the legacy verification-failed meaning and should be interpreted with their backfilled delivery rows.
+- `ignored` means intentionally not processed by operator or application policy.
 - The `Event` row stores canonical payload copied from the first valid `Delivery` that created it. Later deliveries linked to that event do not mutate the event row.
 - Duplicate ingest into an existing `Event` never mutates the event row and never enqueues work. This includes duplicates for `dead` events: Knocker stores the new `Delivery`, returns the existing `event_id`, and leaves recovery to explicit operator action.
 - Replay and requeue reuse the stored event row rather than minting a replacement event in v1.
 - `replay(event_id)` accepts only `handled`, `failed`, `dead`, and `ignored` events. `requeue(event_id)` accepts only `failed`, `dead`, and `ignored` events.
 - Explicit replay and requeue remove stale live Honker jobs for this Knocker queue before enqueueing replacement work.
 - `replay_delivery(delivery_id)` is explicit operator recovery for "process this stored receipt body." It accepts only linked deliveries whose event is `handled`, `failed`, `dead`, or `ignored`, uses the specified delivery body/metadata for the handler call, and does not mutate the canonical event payload.
+- `knocker_reset_event(...)` is the single core reset primitive for event recovery. It resets status to `received`, `attempt_count` to `0`, clears `last_error` and `handled_at`, and does not validate source-event status or record attempt history. Callers (`replay(...)`, `requeue(...)`, `replay_delivery(...)`) enforce their own allowed-source-state preconditions.
+- Every successful `prune_events(...)` and `prune_orphan_deliveries(...)` writes one durable audit row in the same transaction, even when zero rows are deleted.
+- Prune audit rows are never targeted by ordinary prune operations.
+- Prune audit counts include all rows removed as a consequence, whether by direct `DELETE` or `ON DELETE CASCADE`.
 - The supported operator surface is Python-first and returns typed `Event` and `Delivery` objects rather than raw SQL rows.
 - `list_events(...)` and `list_deliveries(...)` are newest-first by default (`received_at DESC, id DESC`) and use inclusive integer-timestamp `since` filters plus bounded `limit` values.
 - `event_type` filtering is exact string equality.
@@ -78,8 +85,12 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 
 ## Current baseline
 
-- The repo currently has the Rust core, Python binding, and Node contract smoke test.
-- The Python binding exposes a public provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.provider_versions(...)`) and ships built-in curated providers for `stripe` and `github`. Built-in providers are auto-registered per `Knocker` instance and cannot be overridden.
+- The repo currently has the Rust core, Python binding, and minimal shared-contract bindings for Node, Bun, Ruby, Go, and Elixir.
+- Runtime confidence is proved against the real durable contract, including a subprocess-kill ingest test, fresh-process reopen coverage, and claim-expiry recovery after reopen.
+- Performance evidence lives in a small local benchmark harness (`bench/knocker_bench.py`) plus loose CI-facing performance-floor tests for durable ingest and no-op-handler worker drain.
+- Phase-011 throughput exploration corrected the earlier event-loop-starvation benchmark shape, confirmed that worker throughput is bottlenecked primarily by claim/dispatch lifecycle work rather than JSON marshalling, and established that multiple independent `knocker.open(...)` handles on one SQLite file are a degraded contention mode that can surface sharp slowdown or `database is locked` failures.
+- The production worker now claims up to `10` jobs per claim transaction, drains already-claimed local buffered jobs before honoring a stop signal, and performs best when one long-lived `knocker.open(...)` is reused per process.
+- The Python binding exposes a public provider plugin surface (`Provider`, `ProviderRequest`, `ProviderResult`, `Knocker.provider_versions(...)`) and ships built-in curated providers for `stripe`, `github`, `shopify`, `slack`, `postmark`, `resend`, `paddle`, and `lemon-squeezy`. Built-in providers are auto-registered per `Knocker` instance and cannot be overridden.
 - `add_endpoint(provider="name", secrets=[...], provider_options={...})` resolves only curated built-in names. App-local and community providers pass a `Provider` instance directly: `add_endpoint(provider=AcmeProvider(), secrets=[...])`. The string namespace is reserved for curated built-ins, so non-curated providers cannot collide with future curated additions. An instance whose `.name` matches a curated name is rejected at registration. Re-`add_endpoint(...)` with a fresh instance always rebuilds the verifier — same `.name` is not the same implementation. Providers that require secrets reject missing/`None`/empty secrets at registration. `provider_options` is schema-checked.
 - Curated provider behavior is pinned by repo-owned conformance material under `providers/<name>/` (small `metadata.json` plus binding-neutral JSON `fixtures/`). Stripe fixtures use explicit clock injection so timestamp-tolerance assertions stay stable over time. The catalog is repo-only conformance material; runtime plugin loading and cross-language code generation remain deferred.
 - The Honker queue object is internal; the public inspection surface is `Knocker.queue_name`. Honker job payload helpers live in `knocker.job_payload`; `knocker.coercion` is scoped to generic argument coercion.
@@ -87,7 +98,9 @@ Knocker is an embeddable inbound webhook inbox for applications that already hav
 - Unexpected provider exceptions become invalid/orphan deliveries with a useful `signature_error`; a buggy app-local provider does not crash callers.
 - Generic HMAC verification stays available via the legacy `verification={"kind": "hmac-sha256", ...}` config path because its per-provider knobs do not fit the curated catalog. Legacy `verification={"kind": "stripe", ...}` continues to work and routes through the same Stripe provider implementation.
 - Explicit `receive(...)` metadata arguments still override provider-extracted metadata, and endpoint `delivery_key` / `event_key` callables still override provider extraction.
-- The Python API now exposes a stable operator surface for `get_event(...)`, `list_events(...)`, `get_delivery(...)`, `list_deliveries(...)`, `ignore(...)`, `replay(...)`, `requeue(...)`, `replay_delivery(...)`, `prune_events(...)`, and `prune_orphan_deliveries(...)`.
+- The Python API now exposes a stable operator surface for `get_event(...)`, `list_events(...)`, `get_delivery(...)`, `list_deliveries(...)`, `ignore(...)`, `replay(...)`, `requeue(...)`, `replay_delivery(...)`, `prune_events(...)`, `prune_orphan_deliveries(...)`, and `list_prune_audits(...)`.
 - The Python worker exposes local `worker_states()` snapshots and optional `on_error` callbacks for worker-loop failures outside normal handler retry/dead-letter handling.
 - The Python binding validates operator timestamps and limits as integers, and validates Stripe tolerance windows as non-negative integers.
-- Automatic retention jobs, richer retention policy, native/WASM provider loading, and admin endpoints are not yet part of the baseline.
+- Python-first retention automation is now part of the baseline as a small public surface backed by Honker Scheduler plus the shared core retention-pass primitive.
+- Multiple processes may run retention workers against the same SQLite file without duplicate prune runs; one process/instance should still be treated as the source of truth for retention configuration.
+- Richer retention policy, native/WASM provider loading, and admin endpoints are not yet part of the baseline.

@@ -4,6 +4,81 @@
 
 ### Added
 
+- Added `RetentionPolicy` plus `run_retention(...)`, a Python-first retention surface backed by Honker Scheduler and the shared core retention-pass primitive.
+- Added production worker claim batching with a fixed internal batch size of `10`.
+- Added runtime-confidence coverage for SQLite-shaped guarantees, including a subprocess-kill ingest test, fresh-process reopen coverage for committed ingress, and claim-expiry recovery after reopen.
+- Added `bench/knocker_bench.py` with two documented local workloads: durable ingress-only and no-op-handler worker drain.
+- Added loose CI-facing performance-floor tests for durable ingest throughput and no-op-handler worker drain throughput.
+- Added phase-011 throughput exploration scripts for handler cost, lifecycle cost, claim batching, mixed-load topology, writer-handle topology, lock contention, and JSON serialization cost.
+- Expanded the Node contract pressure-test client with shared-contract reads (`getDelivery`, `listDeliveriesForEvent`) plus a minimal lifecycle/recovery path (`claimOne`, `ack`, `replay`).
+- Added a curated provider pack for `shopify`, `slack`, `postmark`, `resend`, `paddle`, and `lemon-squeezy`, plus repo-owned metadata and binding-neutral conformance fixtures for every curated provider.
+- Added minimal shared-contract bindings for Bun, Ruby, Go, and Elixir, each with its own runtime-level end-to-end smoke test alongside the existing Node binding.
+- Added `knocker_prune_audits` table with stable top-level columns plus `summary_json`, as part of the single supported Knocker schema.
+- Added `knocker_reset_event(...)` as a core UDF: low-level primitive that resets event status to `received`, `attempt_count` to `0`, clears `last_error` and `handled_at`, without validating source-event status or recording attempt history.
+- Added `list_prune_audits(kind=None, since=None, limit=50)` operator read helper returning `PruneAudit` rows newest-first.
+- Added `PruneAudit` dataclass to the public Python model surface (`knocker.PruneAudit`).
+- Python `prune_events(...)` and `prune_orphan_deliveries(...)` now write one audit row per call in the same transaction, including for no-op prunes with zero counts.
+- Python `replay_delivery(...)` now calls `knocker_reset_event(...)` instead of hand-rolling the same `UPDATE`.
+
+### Changed
+
+- The production worker now drains already-claimed local buffered jobs before honoring a stop signal, so batched claims do not strand work until lease expiry.
+- Updated the representative local worker baseline on an Apple M1 Pro, Python 3.13.5, SQLite 3.49.1 after shipping production claim batching:
+  - durable ingress-only: `5,000` events in `1.445s` (`3,460/s`, `0.289 ms/event`)
+  - no-op-handler worker drain: `5,000` events in `1.836s` (`2,723/s`, `0.367 ms/event`)
+- The Python docs now explicitly recommend one long-lived `knocker.open(...)` per process for hot paths; multiple independent same-file opens remain supported but are documented as a degraded contention mode.
+- The retention guide and Python API reference now document Honker-backed automated retention: multiple runners are safe on one SQLite file, while one process/instance should still own retention configuration.
+- Knocker now documents and tests SQLite-shaped crash/restart guarantees explicitly: committed transaction state survives reopen, never-committed state does not appear after reopen, and fresh post-crash operations continue to work.
+- The benchmark/evidence surface now distinguishes stable local baselines from heavier multi-handle contention probes; `bench/run_all_experiments.py` skips the degraded multi-handle experiments unless explicitly asked to include them.
+- Phase-011 evidence replaces the earlier mixed-load intuition from Phase 010: the event-loop-starved harness had overstated steady-state throughput, while the corrected exploration shows worker-side claim/dispatch contention dominates before JSON marshalling does.
+- Phase-011 corrected baseline numbers before production claim batching were:
+  - durable ingress-only: `5,000` events in `1.329s` (`3,763/s`, `0.266 ms/event`)
+  - no-op-handler worker drain: `5,000` events in `2.136s` (`2,341/s`, `0.427 ms/event`)
+- Knocker now treats the current schema as the only supported schema shape; pre-release legacy layouts are rejected instead of migrated forward.
+- Prune audit rows are never targeted by ordinary prune operations; they form a separate audit trail.
+- Counts in prune audits include all rows removed as a consequence, whether by direct `DELETE` or `ON DELETE CASCADE`.
+- The operator runbook now documents `list_prune_audits(...)` instead of suggesting application-level logging.
+- The retention guide now documents the prune audit trail, the `PruneAudit` shape, and the no-op audit invariant.
+- The Python API reference now includes `list_prune_audits(...)` and `PruneAudit`.
+
+### Fixed
+
+- `run_worker(stop_event=...)` no longer exits between locally buffered claimed jobs and leave already-claimed work waiting for lease expiry.
+- The previous operator runbook told operators to log prune calls themselves because Knocker did not write a durable audit row. That is no longer true; prune audit is built-in.
+- `_WorkerQueueIter` now buffers extra claimed jobs instead of dropping everything after `jobs[0]`, so batched-claim experiments and any future `claim_batch(..., n>1)` worker path do not strand claimed live jobs.
+
+## Released
+
+## Unreleased (cont'd)
+
+### Added
+
+- Added `knocker_prune_audits` table with stable top-level columns plus `summary_json`, as part of the single supported Knocker schema.
+- Added `knocker_reset_event(...)` as a core UDF: low-level primitive that resets event status to `received`, `attempt_count` to `0`, clears `last_error` and `handled_at`, without validating source-event status or recording attempt history.
+- Added `list_prune_audits(kind=None, since=None, limit=50)` operator read helper returning `PruneAudit` rows newest-first.
+- Added `PruneAudit` dataclass to the public Python model surface (`knocker.PruneAudit`).
+- Python `prune_events(...)` and `prune_orphan_deliveries(...)` now write one audit row per call in the same transaction, including for no-op prunes with zero counts.
+- Python `replay_delivery(...)` now calls `knocker_reset_event(...)` instead of hand-rolling the same `UPDATE`.
+
+### Changed
+
+- Knocker now treats the current schema as the only supported schema shape; pre-release legacy layouts are rejected instead of migrated forward.
+- Prune audit rows are never targeted by ordinary prune operations; they form a separate audit trail.
+- Counts in prune audits include all rows removed as a consequence, whether by direct `DELETE` or `ON DELETE CASCADE`.
+- The operator runbook now documents `list_prune_audits(...)` instead of suggesting application-level logging.
+- The retention guide now documents the prune audit trail, the `PruneAudit` shape, and the no-op audit invariant.
+- The Python API reference now includes `list_prune_audits(...)` and `PruneAudit`.
+
+### Fixed
+
+- The previous operator runbook told operators to log prune calls themselves because Knocker did not write a durable audit row. That is no longer true; prune audit is built-in.
+
+## Released
+
+## Unreleased (cont'd)
+
+### Added
+
 - Added a repo-level curated provider catalog under `providers/<name>/` with `metadata.json` plus binding-neutral JSON `fixtures/`. Stripe and GitHub each ship valid, invalid-signature, missing-required-header, and (for Stripe) timestamp-tolerance fixtures. The catalog is repo-only conformance material in this phase; runtime plugin loading remains intentionally deferred.
 - Added `tests/test_provider_conformance.py` which loads every fixture under `providers/<name>/fixtures/` and asserts the bundled Python provider produces the expected verification outcome and extracted metadata. Stripe fixtures use explicit clock injection (`request.now_s`) so absolute timestamps stay valid forever.
 - Added a `Provider`-instance path to `add_endpoint(provider=AcmeProvider(), secrets=[...])` for app-local and community providers. Curated string names (`"stripe"`, `"github"`) remain reserved for built-ins; an instance whose `.name` collides with a curated name is rejected.

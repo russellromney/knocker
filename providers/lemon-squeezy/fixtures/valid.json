@@ -1,0 +1,18 @@
+{
+  "description": "Valid Lemon Squeezy signature should accept and extract identifier plus event name.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Signature": "46efd8a4efc0ae424775f622c5d1d75f0e7d6faf69e655edbc25feace7608fd8",
+      "X-Event-Name": "order_created"
+    },
+    "query": {},
+    "body": "{\"meta\":{\"event_name\":\"order_created\"},\"data\":{\"attributes\":{\"identifier\":\"ls-order-1\"}}}",
+    "secrets": ["lemon-secret"]
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "ls-order-1",
+    "event_type": "order_created"
+  }
+}

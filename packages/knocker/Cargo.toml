@@ -13,7 +13,7 @@ name = "_knocker_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-honker-core = "0.2.1"
+honker-core = "0.2.3"
 knocker-core = { path = "../../knocker-core" }
 parking_lot = "0.12.5"
 pyo3 = { version = "0.28.3", features = ["extension-module", "abi3-py312"] }

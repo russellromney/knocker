@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Python-first inbound webhook inbox on SQLite"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "honker>=0.2.3,<0.3",
+]
 license = "Apache-2.0"
 keywords = ["webhooks", "sqlite", "stripe", "inbox", "honker"]
 classifiers = [

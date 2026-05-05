@@ -5,6 +5,7 @@ import time
 
 import knocker
 import pytest
+from knocker.queue import _HonkerQueue
 
 from tests.helpers import (
     generic_hmac_signature as _generic_hmac_signature,
@@ -385,3 +386,139 @@ async def test_replay_delivery_during_active_worker_processes_synthetic_job(db_p
     assert app.get_event(event_id).provider_delivery_id == "delivery-1"
     rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
     assert rows[0]["c"] == 0
+
+
+async def test_worker_buffers_extra_jobs_from_batched_claims(db_path, monkeypatch):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    seen = []
+
+    @app.handle(endpoint="stripe", event_type="checkout.session.completed")
+    def handle(event, tx):
+        seen.append(event.id)
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-batch-1"}',
+        headers={},
+        provider_event_id="evt-batch-1",
+        provider_delivery_id="delivery-batch-1",
+        event_type="checkout.session.completed",
+    )
+    second = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-batch-2"}',
+        headers={},
+        provider_event_id="evt-batch-2",
+        provider_delivery_id="delivery-batch-2",
+        event_type="checkout.session.completed",
+    )
+    first_id = _require_event_id(first)
+    second_id = _require_event_id(second)
+
+    original_claim_batch = _HonkerQueue.claim_batch
+    used_batch = {"done": False}
+
+    def patched_claim_batch(self, worker_id, n):
+        if not used_batch["done"]:
+            used_batch["done"] = True
+            return original_claim_batch(self, worker_id, 2)
+        return original_claim_batch(self, worker_id, n)
+
+    monkeypatch.setattr(_HonkerQueue, "claim_batch", patched_claim_batch)
+
+    stop = asyncio.Event()
+    worker = asyncio.create_task(app.run_worker(stop_event=stop, idle_poll_s=0.01))
+    try:
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while asyncio.get_running_loop().time() < deadline:
+            if len(seen) == 2:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        stop.set()
+        await asyncio.wait_for(worker, timeout=3.0)
+
+    assert seen == [first_id, second_id]
+    rows = app.db.query("SELECT COUNT(*) AS c FROM _honker_live WHERE queue=?", [app.queue_name])
+    assert rows[0]["c"] == 0
+
+
+async def test_replay_requeue_and_replay_delivery_all_produce_same_reset_state(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    for idx in range(3):
+        app.ingest(
+            endpoint="stripe",
+            body=f'{{"id":"evt-reset-{idx}"}}'.encode(),
+            headers={},
+            provider_event_id=f"evt-reset-{idx}",
+        )
+
+    event_ids = []
+    for idx in range(3):
+        rows = app.db.query(
+            "SELECT id FROM knocker_events WHERE provider_event_id=?",
+            [f"evt-reset-{idx}"],
+        )
+        event_ids.append(int(rows[0]["id"]))
+
+    with app.db.transaction() as tx:
+        tx.query("SELECT knocker_mark_handled(?, ?)", [event_ids[0], 0])
+        tx.query("SELECT knocker_mark_failed(?, ?, ?, ?, ?)", [event_ids[1], 1, "boom", 1, 0])
+        tx.query("SELECT knocker_mark_ignored(?, ?)", [event_ids[2], 0])
+
+    app.replay(event_ids[0])
+    app.requeue(event_ids[1])
+    duplicate = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-reset-2"}',
+        headers={},
+        provider_event_id="evt-reset-2",
+    )
+    app.replay_delivery(duplicate.delivery_id)
+
+    for event_id in event_ids:
+        event = app.get_event(event_id)
+        assert event.status == "received"
+        assert event.attempt_count == 0
+        assert event.handled_at is None
+        assert event.last_error is None
+
+
+async def test_replay_delivery_uses_knocker_reset_event_and_does_not_record_attempt(db_path):
+    app = knocker.open(db_path)
+    app.add_endpoint(name="stripe", path="/webhooks/stripe")
+
+    first = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-reset-attempt"}',
+        headers={},
+        provider_event_id="evt-reset-attempt",
+    )
+    event_id = _require_event_id(first)
+
+    with app.db.transaction() as tx:
+        tx.query("SELECT knocker_mark_handled(?, ?)", [event_id, 0])
+
+    attempts_before = app.db.query(
+        "SELECT COUNT(*) AS c FROM knocker_attempts WHERE event_id=?",
+        [event_id],
+    )
+    assert attempts_before[0]["c"] == 1
+
+    duplicate = app.ingest(
+        endpoint="stripe",
+        body=b'{"id":"evt-reset-attempt"}',
+        headers={},
+        provider_event_id="evt-reset-attempt",
+    )
+    app.replay_delivery(duplicate.delivery_id)
+
+    attempts_after = app.db.query(
+        "SELECT COUNT(*) AS c FROM knocker_attempts WHERE event_id=?",
+        [event_id],
+    )
+    assert attempts_after[0]["c"] == 1

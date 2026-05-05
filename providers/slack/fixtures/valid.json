@@ -1,0 +1,19 @@
+{
+  "description": "Valid Slack signature should accept and extract event_id plus nested event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Slack-Request-Timestamp": "1714000000",
+      "X-Slack-Signature": "v0=3df5cc880b10ad1bda42cb88f1f580e4dcc9023442168e52553dc0bad4e59b89"
+    },
+    "query": {},
+    "body": "{\"type\":\"event_callback\",\"event_id\":\"Ev123\",\"event\":{\"type\":\"app_mention\"}}",
+    "secrets": ["slack-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "Ev123",
+    "event_type": "app_mention"
+  }
+}

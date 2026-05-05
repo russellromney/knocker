@@ -13,7 +13,8 @@ registry. There are three support tiers:
 
 - **Curated built-in providers** ship inside `knockerlite`, are auto-registered,
   and have repo-owned conformance fixtures under `providers/<name>/`.
-  Today: `stripe` and `github`. The string `provider="..."` namespace is
+  Today: `stripe`, `github`, `shopify`, `slack`, `postmark`, `resend`,
+  `paddle`, and `lemon-squeezy`. The string `provider="..."` namespace is
   reserved for these names.
 - **App-local providers** live in your own code. Pass a `Provider` instance
   directly to `add_endpoint(provider=AcmeProvider(), ...)` — no global
@@ -84,7 +85,9 @@ the stored event instead.
 ## App-local providers
 
 Implement the small `Provider` interface and pass your instance directly to
-`add_endpoint(...)`. Curated string names like `"stripe"` and `"github"` are
+`add_endpoint(...)`. Curated string names like `"stripe"`, `"github"`,
+`"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`, and
+`"lemon-squeezy"` are
 reserved for built-ins; non-curated providers should pass an instance.
 
 ```python
@@ -163,7 +166,7 @@ and stores an orphan delivery rather than crashing the caller.
 
 ```python
 versions = app.provider_versions()
-# {"stripe": "1.0.0", "github": "1.0.0", "acme": "1.0.0"}
+# {"stripe": "1.0.0", "github": "1.0.0", "shopify": "1.0.0"}
 ```
 
 `provider_versions()` returns a fresh `dict[str, str]` mapping each

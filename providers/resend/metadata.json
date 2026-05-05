@@ -1,0 +1,7 @@
+{
+  "name": "resend",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Resend webhook verification using the Svix signature scheme. Extracts svix-id as the delivery identity, data.email_id as the upstream event id, and type from the JSON body.",
+  "upstream_docs_url": "https://resend.com/docs/dashboard/webhooks/introduction"
+}

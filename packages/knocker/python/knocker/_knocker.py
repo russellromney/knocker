@@ -6,6 +6,8 @@ import time
 import uuid
 from typing import Any, Optional
 
+import honker
+
 from knocker._knocker_native import open as _core_open
 from knocker.coercion import (
     _coerce_bool_filter,
@@ -14,7 +16,6 @@ from knocker.coercion import (
     _coerce_prune_statuses,
     _coerce_since,
     _duration_ms,
-    _sql_placeholders,
 )
 from knocker.job_payload import (
     _event_id_from_payload_json,
@@ -27,8 +28,10 @@ from knocker.models import (
     Event,
     Handler,
     IngestResult,
+    PruneAudit,
     PruneDeliveriesResult,
     PruneEventsResult,
+    RetentionPolicy,
     WorkerState,
 )
 from knocker.providers import (
@@ -74,11 +77,18 @@ class Knocker:
     ):
         self.db_path = db_path
         self.db = _core_open(db_path, max_readers=max_readers)
+        self._honker = honker.Database(self.db)
         self._queue = _HonkerQueue(
-            self.db,
+            self._honker,
             queue_name,
             visibility_timeout_s=visibility_timeout_s,
             max_attempts=max_attempts,
+        )
+        self._retention_queue = _HonkerQueue(
+            self._honker,
+            f"{queue_name}.retention",
+            visibility_timeout_s=60,
+            max_attempts=3,
         )
         self.max_attempts = int(max_attempts)
         self._handlers: dict[tuple[str, Optional[str]], Handler] = {}
@@ -98,11 +108,23 @@ class Knocker:
 
         return self._queue.name
 
+    def close(self) -> None:
+        """Close the underlying Honker/SQLite handles for this Knocker instance.
+
+        Intended for explicit teardown in benchmarks, short-lived scripts, and
+        tests that create many temporary databases. Idempotence is delegated to
+        the underlying native/Honker close path.
+        """
+
+        self._honker.close()
+
     def provider_versions(self) -> dict[str, str]:
         """Return a fresh ``{name: version}`` map of curated built-in providers.
 
-        String provider names are reserved for curated built-ins (``stripe``,
-        ``github``); app-local and community providers use the instance path
+        String provider names are reserved for curated built-ins
+        (``stripe``, ``github``, ``shopify``, ``slack``, ``postmark``,
+        ``resend``, ``paddle``, ``lemon-squeezy``); app-local and community
+        providers use the instance path
         (``add_endpoint(provider=AcmeProvider(), ...)``) and do not appear
         here. Versions are implementation SemVer strings, not part of any
         compatibility contract.
@@ -125,13 +147,16 @@ class Knocker:
     ) -> None:
         """Register or update an endpoint and its verification/extractor config.
 
-        ``provider`` is either a curated provider name string (``"stripe"``,
-        ``"github"``) or a ``knocker.Provider`` instance for app-local /
-        community providers. Curated string names are reserved for built-ins;
-        instance path is the preferred shape for everything else. Unknown
-        names and providers that require non-empty ``secrets=...`` fail at
-        registration. ``provider_options={...}`` is schema-checked.
-        ``verification={...}`` is the legacy explicit-config path.
+        ``provider`` is either a curated provider name string
+        (``"stripe"``, ``"github"``, ``"shopify"``, ``"slack"``,
+        ``"postmark"``, ``"resend"``, ``"paddle"``,
+        ``"lemon-squeezy"``) or a ``knocker.Provider`` instance for
+        app-local / community providers. Curated string names are reserved
+        for built-ins; instance path is the preferred shape for everything
+        else. Unknown names and providers that require non-empty
+        ``secrets=...`` fail at registration. ``provider_options={...}`` is
+        schema-checked. ``verification={...}`` is the legacy explicit-config
+        path.
         """
 
         config, stored_provider_tag = _build_endpoint_config(
@@ -468,14 +493,7 @@ class Knocker:
             live_job_ids = self._stale_live_job_ids(tx, [delivery.event_id])
             self._delete_live_jobs_by_id(tx, live_job_ids)
             tx.query(
-                """
-                UPDATE knocker_events
-                SET status='received',
-                    attempt_count=0,
-                    handled_at=NULL,
-                    last_error=NULL
-                WHERE id=?
-                """,
+                "SELECT knocker_reset_event(?)",
                 [delivery.event_id],
             )
             tx.query(
@@ -507,25 +525,21 @@ class Knocker:
         older_than_value = _coerce_older_than(older_than)
         limit_value = _coerce_limit(limit)
         with self.db.transaction() as tx:
-            event_ids = self._prune_event_candidate_ids(
-                tx,
-                statuses=resolved_statuses,
-                older_than=older_than_value,
-                limit=limit_value,
+            rows = tx.query(
+                "SELECT knocker_prune_events(?, ?, ?, ?) AS result_json",
+                [
+                    json.dumps(list(resolved_statuses), sort_keys=True),
+                    older_than_value,
+                    limit_value,
+                    self._queue.name,
+                ],
             )
-            if not event_ids:
-                return PruneEventsResult(0, 0, 0, 0)
-            attempts_pruned = self._count_event_attempts(tx, event_ids)
-            deliveries_pruned = self._count_event_deliveries(tx, event_ids)
-            live_job_ids = self._stale_live_job_ids(tx, event_ids)
-            self._delete_live_jobs_by_id(tx, live_job_ids)
-            self._delete_deliveries_for_event_ids(tx, event_ids)
-            self._delete_events_by_id(tx, event_ids)
+        result = json.loads(rows[0]["result_json"])
         return PruneEventsResult(
-            events_pruned=len(event_ids),
-            attempts_pruned=attempts_pruned,
-            deliveries_pruned=deliveries_pruned,
-            live_jobs_pruned=len(live_job_ids),
+            events_pruned=int(result["events_pruned"]),
+            attempts_pruned=int(result["attempts_pruned"]),
+            deliveries_pruned=int(result["deliveries_pruned"]),
+            live_jobs_pruned=int(result["live_jobs_pruned"]),
         )
 
     def prune_orphan_deliveries(
@@ -539,61 +553,50 @@ class Knocker:
         older_than_value = _coerce_older_than(older_than)
         limit_value = _coerce_limit(limit)
         with self.db.transaction() as tx:
-            delivery_ids = self._prune_orphan_delivery_candidate_ids(
-                tx,
-                older_than=older_than_value,
-                limit=limit_value,
+            rows = tx.query(
+                "SELECT knocker_prune_orphan_deliveries(?, ?, ?) AS result_json",
+                [older_than_value, limit_value, self._queue.name],
             )
-            if not delivery_ids:
-                return PruneDeliveriesResult(0)
-            self._delete_deliveries_by_id(tx, delivery_ids)
-        return PruneDeliveriesResult(deliveries_pruned=len(delivery_ids))
+        result = json.loads(rows[0]["result_json"])
+        return PruneDeliveriesResult(deliveries_pruned=int(result["deliveries_pruned"]))
 
-    def _prune_event_candidate_ids(
+    def list_prune_audits(
         self,
-        tx: Any,
         *,
-        statuses: tuple[str, ...],
-        older_than: int,
-        limit: int,
-    ) -> list[int]:
-        placeholders = _sql_placeholders(len(statuses))
-        rows = tx.query(
-            f"""
-            SELECT id
-            FROM knocker_events
-            WHERE status IN ({placeholders})
-              AND received_at < ?
-            ORDER BY received_at ASC, id ASC
-            LIMIT ?
-            """,
-            [*statuses, older_than, limit],
-        )
-        return [int(row["id"]) for row in rows]
+        kind: Optional[str] = None,
+        since: Optional[int] = None,
+        limit: int = 50,
+    ) -> list[PruneAudit]:
+        """List prune audit rows newest-first with optional kind and since filters."""
 
-    def _count_event_attempts(self, tx: Any, event_ids: list[int]) -> int:
-        placeholders = _sql_placeholders(len(event_ids))
-        rows = tx.query(
-            f"""
-            SELECT COUNT(*) AS c
-            FROM knocker_attempts
-            WHERE event_id IN ({placeholders})
-            """,
-            event_ids,
-        )
-        return int(rows[0]["c"])
-
-    def _count_event_deliveries(self, tx: Any, event_ids: list[int]) -> int:
-        placeholders = _sql_placeholders(len(event_ids))
-        rows = tx.query(
-            f"""
-            SELECT COUNT(*) AS c
-            FROM knocker_deliveries
-            WHERE event_id IN ({placeholders})
-            """,
-            event_ids,
-        )
-        return int(rows[0]["c"])
+        since_value = _coerce_since(since) if since is not None else None
+        limit_value = _coerce_limit(limit)
+        sql = """
+            SELECT
+                id,
+                kind,
+                queue_name,
+                executed_at,
+                events_pruned,
+                deliveries_pruned,
+                attempts_pruned,
+                live_jobs_pruned,
+                summary_json
+            FROM knocker_prune_audits
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        if kind is not None:
+            clauses.append("kind=?")
+            params.append(kind)
+        if since_value is not None:
+            clauses.append("executed_at>=?")
+            params.append(since_value)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY executed_at DESC, id DESC LIMIT ?"
+        params.append(limit_value)
+        return [_prune_audit_from_row(row) for row in self.db.query(sql, params)]
 
     def _stale_live_job_ids(self, tx: Any, event_ids: list[int]) -> list[int]:
         candidate_event_ids = set(event_ids)
@@ -613,48 +616,162 @@ class Knocker:
         return job_ids
 
     def _delete_live_jobs_by_id(self, tx: Any, job_ids: list[int]) -> None:
-        if not job_ids:
-            return
-        placeholders = _sql_placeholders(len(job_ids))
-        tx.query(f"DELETE FROM _honker_live WHERE id IN ({placeholders})", job_ids)
+        for job_id in job_ids:
+            tx.query("DELETE FROM _honker_live WHERE id=?", [job_id])
 
-    def _delete_deliveries_for_event_ids(self, tx: Any, event_ids: list[int]) -> None:
-        if not event_ids:
-            return
-        placeholders = _sql_placeholders(len(event_ids))
-        tx.query(f"DELETE FROM knocker_deliveries WHERE event_id IN ({placeholders})", event_ids)
-
-    def _delete_events_by_id(self, tx: Any, event_ids: list[int]) -> None:
-        if not event_ids:
-            return
-        placeholders = _sql_placeholders(len(event_ids))
-        tx.query(f"DELETE FROM knocker_events WHERE id IN ({placeholders})", event_ids)
-
-    def _prune_orphan_delivery_candidate_ids(
+    async def run_retention(
         self,
-        tx: Any,
+        policy: RetentionPolicy,
         *,
-        older_than: int,
-        limit: int,
-    ) -> list[int]:
-        rows = tx.query(
-            """
-            SELECT id
-            FROM knocker_deliveries
-            WHERE event_id IS NULL
-              AND received_at < ?
-            ORDER BY received_at ASC, id ASC
-            LIMIT ?
-            """,
-            [older_than, limit],
-        )
-        return [int(row["id"]) for row in rows]
+        stop_event: Optional[asyncio.Event] = None,
+        on_error: Optional[ErrorHandler] = None,
+    ) -> None:
+        """Run Honker-backed retention automation until stopped.
 
-    def _delete_deliveries_by_id(self, tx: Any, delivery_ids: list[int]) -> None:
-        if not delivery_ids:
-            return
-        placeholders = _sql_placeholders(len(delivery_ids))
-        tx.query(f"DELETE FROM knocker_deliveries WHERE id IN ({placeholders})", delivery_ids)
+        Retention-pass semantics live in the core/extension. Recurrence is
+        registered through Honker Scheduler and executed by a retention worker
+        queue. Multiple processes may run this against the same SQLite file:
+        scheduler leadership is Honker-owned and retention jobs themselves are
+        claimed competitively from the shared queue.
+        """
+
+        interval_s = _coerce_retention_age("interval_s", policy.interval_s)
+        statuses = _coerce_prune_statuses(policy.event_statuses)
+        event_age_s = (
+            None
+            if policy.event_older_than_s is None
+            else _coerce_retention_age("event_older_than_s", policy.event_older_than_s)
+        )
+        orphan_age_s = (
+            None
+            if policy.orphan_deliveries_older_than_s is None
+            else _coerce_retention_age(
+                "orphan_deliveries_older_than_s",
+                policy.orphan_deliveries_older_than_s,
+            )
+        )
+        event_limit = _coerce_limit(policy.event_limit)
+        orphan_limit = _coerce_limit(policy.orphan_deliveries_limit)
+        if event_age_s is None and orphan_age_s is None:
+            raise ValueError("retention policy must enable at least one automated prune path")
+        stop_event = stop_event or asyncio.Event()
+        payload = {
+            "event_limit": event_limit,
+            "event_statuses": list(statuses),
+            "event_older_than_s": event_age_s,
+            "interval_s": interval_s,
+            "orphan_deliveries_limit": orphan_limit,
+            "orphan_deliveries_older_than_s": orphan_age_s,
+            "queue_name": self._queue.name,
+        }
+        payload_json = json.dumps(
+            payload,
+            sort_keys=True,
+        )
+        scheduler = honker.Scheduler(self._honker)
+        scheduler.add(
+            name=self._retention_schedule_name(),
+            queue=self._retention_queue.name,
+            schedule=honker.every_s(interval_s),
+            payload=payload,
+        )
+
+        scheduler_task = asyncio.create_task(
+            self._run_retention_scheduler(scheduler, stop_event)
+        )
+        claims = self._retention_queue.claim(
+            f"knocker-retention-{uuid.uuid4().hex[:8]}",
+            idle_poll_s=0.5,
+            claim_batch_size=1,
+        )
+        try:
+            while True:
+                if stop_event.is_set() and not claims.has_buffered_jobs():
+                    return
+                if claims.has_buffered_jobs():
+                    job = await claims.__anext__()
+                else:
+                    claim_task = asyncio.create_task(claims.__anext__())
+                    stop_task = asyncio.create_task(stop_event.wait())
+                    done, pending = await asyncio.wait(
+                        {claim_task, stop_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if claim_task in done:
+                        stop_task.cancel()
+                        for task in pending:
+                            task.cancel()
+                        job = claim_task.result()
+                    else:
+                        claim_task.cancel()
+                        try:
+                            await claim_task
+                        except asyncio.CancelledError:
+                            pass
+                        return
+                try:
+                    self._run_retention_job(job)
+                except Exception as exc:
+                    self._retention_queue.fail(job.id, job.worker_id, str(exc))
+                    if on_error is not None:
+                        maybe_awaitable = on_error(exc)
+                        if asyncio.iscoroutine(maybe_awaitable):
+                            await maybe_awaitable
+                    raise
+        finally:
+            stop_event.set()
+            scheduler_task.cancel()
+            await asyncio.gather(scheduler_task, return_exceptions=True)
+
+    def _retention_schedule_name(self) -> str:
+        return f"knocker-retention:{self._queue.name}"
+
+    async def _run_retention_scheduler(
+        self,
+        scheduler: honker.Scheduler,
+        stop_event: asyncio.Event,
+    ) -> None:
+        while not stop_event.is_set():
+            try:
+                await scheduler.run(stop_event=stop_event)
+                return
+            except honker.LockHeld:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=0.25)
+                except asyncio.TimeoutError:
+                    continue
+            except asyncio.CancelledError:
+                raise
+
+    def _run_retention_job(self, job: _HonkerJob) -> None:
+        payload = dict(job.payload)
+        now_s = int(time.time())
+        with self.db.transaction() as tx:
+            tx.query(
+                "SELECT knocker_run_retention_pass(?, ?, ?, ?, ?, ?)",
+                [
+                    json.dumps(payload["event_statuses"], sort_keys=True),
+                    (
+                        None
+                        if payload["event_older_than_s"] is None
+                        else now_s - int(payload["event_older_than_s"])
+                    ),
+                    int(payload["event_limit"]),
+                    (
+                        None
+                        if payload["orphan_deliveries_older_than_s"] is None
+                        else now_s - int(payload["orphan_deliveries_older_than_s"])
+                    ),
+                    int(payload["orphan_deliveries_limit"]),
+                    payload["queue_name"],
+                ],
+            )
+            _require_queue_transition(
+                self._retention_queue.ack(job.id, job.worker_id, tx=tx),
+                action="ack",
+                job_id=job.id,
+                event_id=0,
+            )
 
     async def run_worker(
         self,
@@ -673,31 +790,39 @@ class Knocker:
 
         worker_id = worker_id or f"knocker-{uuid.uuid4().hex[:8]}"
         self._set_worker_state(worker_id, running=True, current_event_id=None)
-        claims = self._queue.claim(worker_id, idle_poll_s=idle_poll_s)
+        claims = self._queue.claim(
+            worker_id,
+            idle_poll_s=idle_poll_s,
+            claim_batch_size=10,
+        )
         try:
             while True:
-                if stop_event is not None and stop_event.is_set():
+                if stop_event is not None and stop_event.is_set() and not claims.has_buffered_jobs():
                     return
-                claim_task = asyncio.create_task(claims.__anext__())
-                if stop_event is not None:
-                    stop_task = asyncio.create_task(stop_event.wait())
-                    done, pending = await asyncio.wait(
-                        {claim_task, stop_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    if stop_task in done:
-                        claim_task.cancel()
-                        try:
-                            await claim_task
-                        except asyncio.CancelledError:
-                            pass
-                        return
-                    stop_task.cancel()
-                    for task in pending:
-                        task.cancel()
-                    job = claim_task.result()
+                if claims.has_buffered_jobs():
+                    job = await claims.__anext__()
                 else:
-                    job = await claim_task
+                    claim_task = asyncio.create_task(claims.__anext__())
+                    if stop_event is not None:
+                        stop_task = asyncio.create_task(stop_event.wait())
+                        done, pending = await asyncio.wait(
+                            {claim_task, stop_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if claim_task in done:
+                            stop_task.cancel()
+                            for task in pending:
+                                task.cancel()
+                            job = claim_task.result()
+                        else:
+                            claim_task.cancel()
+                            try:
+                                await claim_task
+                            except asyncio.CancelledError:
+                                pass
+                            return
+                    else:
+                        job = await claim_task
                 try:
                     await self._dispatch_job(job)
                 except Exception as exc:
@@ -954,6 +1079,28 @@ def _delivery_from_row(row: dict[str, Any]) -> Delivery:
         signature_valid=None if signature_valid is None else bool(signature_valid),
         signature_error=row["signature_error"],
     )
+
+
+def _prune_audit_from_row(row: dict[str, Any]) -> PruneAudit:
+    return PruneAudit(
+        id=int(row["id"]),
+        kind=row["kind"],
+        queue_name=row["queue_name"],
+        executed_at=int(row["executed_at"]),
+        events_pruned=row["events_pruned"],
+        deliveries_pruned=int(row["deliveries_pruned"]),
+        attempts_pruned=row["attempts_pruned"],
+        live_jobs_pruned=row["live_jobs_pruned"],
+        summary_json=row["summary_json"],
+    )
+
+
+def _coerce_retention_age(name: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return int(value)
 
 
 def _event_from_delivery(event: Event, delivery: Delivery) -> Event:

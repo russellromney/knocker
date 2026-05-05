@@ -1,0 +1,41 @@
+Phase 012 verification and evidence
+
+What changed
+- production worker claim batching landed with a fixed internal batch size of `10`
+- `run_worker(stop_event=...)` now drains already-claimed local buffered jobs before exit instead of stranding them until lease expiry
+- user-facing docs now recommend one long-lived `knocker.open(...)` per process for hot paths and describe many same-file opens as a degraded contention mode
+
+Direct proof
+- `uv run --group dev pytest tests/test_ingest_worker.py -k "uses_batched_claims or stop_drains_locally_buffered_claims_before_exit or multiple_workers_process_each_event_once or idle_worker_wakes_on_wal_commit_without_waiting_for_poll_timeout"`
+  - `4 passed`
+- `uv run --group dev pytest tests/test_performance_floors.py`
+  - `3 passed`
+  - includes the bounded contention-sensitive proof: `1 producer / 2 workers`
+
+Refreshed local benchmark evidence
+- `uv run --group dev python bench/run_all_experiments.py`
+  - note: heavy multi-handle contention probes remain opt-in
+  - `knocker_bench`
+    - durable ingress-only: `5,000` events in `1.445s` (`3,460/s`, `0.289 ms/event`)
+    - no-op-handler worker drain: `5,000` events in `1.836s` (`2,723/s`, `0.367 ms/event`)
+  - `experiment_claim_batch` (`2,000` events, one producer, one worker)
+    - `batch_size=1`: worker `1,969.5/s`
+    - `batch_size=2`: worker `2,726.8/s`
+    - `batch_size=5`: worker `3,903.9/s`
+    - `batch_size=10`: worker `4,217.6/s`
+  - `experiment_serialization_cost`
+    - JSON encode/decode remains on the order of `~1-2 us/op`, confirming it is still not the main bottleneck
+
+Blast-radius proof
+- `make test`
+  - Rust: `14 passed`
+  - Python: `128 passed`
+  - Node: `4 passed`
+- `npm --prefix site run build`
+  - `12 page(s) built`
+
+What we intentionally did not do
+- no public performance tuning knob
+- no ack batching redesign
+- no attempt-history semantic change
+- no claim that multi-open same-file behavior is now a good scaling story

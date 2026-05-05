@@ -1,0 +1,18 @@
+{
+  "description": "Wrong Basic Auth credentials should reject as a mismatch while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Authorization": "Basic YmFkOmNyZWRz"
+    },
+    "query": {},
+    "body": "{\"RecordType\":\"Bounce\",\"MessageID\":\"postmark-msg-2\"}",
+    "secrets": ["user:pass"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "postmark basic auth mismatch",
+    "provider_event_id": "postmark-msg-2",
+    "event_type": "Bounce"
+  }
+}

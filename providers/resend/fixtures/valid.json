@@ -1,0 +1,21 @@
+{
+  "description": "Valid Resend Svix signature should accept and extract delivery id, email id, and event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "svix-id": "msg_123",
+      "svix-timestamp": "1714000000",
+      "svix-signature": "v1,6GhjgIcF+AjokOpMQ0k7yjUejNuhG+J96PHvlihnkWU="
+    },
+    "query": {},
+    "body": "{\"type\":\"email.delivered\",\"data\":{\"email_id\":\"email_123\"}}",
+    "secrets": ["whsec_resend"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_delivery_id": "msg_123",
+    "provider_event_id": "email_123",
+    "event_type": "email.delivered"
+  }
+}

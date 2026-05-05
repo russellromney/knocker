@@ -1,0 +1,7 @@
+{
+  "name": "shopify",
+  "version": "1.0.0",
+  "support_tier": "curated",
+  "description": "Shopify webhook verification using X-Shopify-Hmac-Sha256 (base64 HMAC-SHA256 over the raw body). Extracts X-Shopify-Webhook-Id as the delivery identity, X-Shopify-Event-Id as the upstream event id, and X-Shopify-Topic as the event type.",
+  "upstream_docs_url": "https://shopify.dev/docs/apps/build/webhooks/subscribe/https"
+}

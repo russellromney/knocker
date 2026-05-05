@@ -3,12 +3,44 @@ title: Retention and pruning
 description: Explicit, bounded pruning for handled, ignored, and orphan-delivery rows.
 ---
 
-Knocker keeps pruning intentionally small in `0.1.0`:
+Knocker keeps retention intentionally small:
 
-- explicit operator-invoked calls only
-- no scheduler
+- explicit prune primitives remain the source of truth
+- optional Python-first automation exists on top of Honker timing/queue primitives
 - no richer policy engine
-- no automatic retention jobs
+- no calendar or cron semantics
+
+## Retention automation
+
+Python can run the existing prune primitives on a simple interval:
+
+```python
+policy = knocker.RetentionPolicy(
+    interval_s=3600,
+    event_statuses=("handled", "ignored"),
+    event_older_than_s=7 * 24 * 60 * 60,
+    event_limit=500,
+    orphan_deliveries_older_than_s=24 * 60 * 60,
+    orphan_deliveries_limit=500,
+)
+
+await app.run_retention(policy, stop_event=stop)
+```
+
+Important boundaries:
+
+- automation is Python-first in this phase
+- automation is intentionally small
+- recurrence comes from Honker Scheduler
+- each maintenance job calls the shared core retention-pass primitive
+- automated runs write the same durable audit rows as manual runs
+- multiple processes can run retention workers against the same SQLite file without duplicate prune runs
+
+Configuration is simpler than runtime:
+
+- multiple runners are acceptable
+- one process/instance should still be treated as the source of truth for
+  retention configuration for a given database
 
 ## Prune events
 
@@ -50,6 +82,24 @@ This is about the orphan axis only: `event_id IS NULL`. It is not a generic "inv
 
 `knocker_deliveries` is append-only during normal ingest and operator inspection. Explicit pruning is the documented retention exception that may delete old delivery rows.
 
+## Prune audit trail
+
+Every successful prune call records an audit row in the same transaction:
+
+```python
+audits = app.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
+```
+
+Each `PruneAudit` includes:
+
+- `kind`: `'prune_events'` or `'prune_orphan_deliveries'`
+- `queue_name`: the Honker queue pruned against
+- `executed_at`: unixepoch timestamp
+- `events_pruned`, `deliveries_pruned`, `attempts_pruned`, `live_jobs_pruned`
+- `summary_json`: operator inputs (`statuses`, `older_than`, `limit`)
+
+No-op prunes (zero rows deleted) still write an audit row with zero counts. Audit rows are never targeted by ordinary prune operations.
+
 ## What is deferred
 
 Still intentionally out of scope:
@@ -57,5 +107,4 @@ Still intentionally out of scope:
 - pruning `failed` or `dead` events
 - dry-run mode
 - endpoint-specific retention policy
-- automatic retention jobs
 - local-day or DST-aware retention semantics

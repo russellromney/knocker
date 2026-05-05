@@ -1,0 +1,23 @@
+{
+  "description": "Timestamp outside the configured Resend tolerance window should reject while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "svix-id": "msg_125",
+      "svix-timestamp": "1714000000",
+      "svix-signature": "v1,knrLu1l6Atuhjd+ekbyguvjcJxfMtdB3LRZtpJxiwIk="
+    },
+    "query": {},
+    "body": "{\"type\":\"email.delivered\",\"data\":{\"email_id\":\"email_123\"}}",
+    "secrets": ["whsec_resend"],
+    "provider_options": {"tolerance_s": 300},
+    "now_s": 1714000600
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "outside tolerance",
+    "provider_delivery_id": "msg_125",
+    "provider_event_id": "email_123",
+    "event_type": "email.delivered"
+  }
+}

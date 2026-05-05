@@ -1,0 +1,19 @@
+{
+  "description": "Wrong Lemon Squeezy secret should reject as a mismatch while preserving extracted metadata.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "X-Signature": "df4adc0d9d5a8682ad6f0707b4e7b19149233cd8f35404ac840fa268e561df2f",
+      "X-Event-Name": "order_created"
+    },
+    "query": {},
+    "body": "{\"meta\":{\"event_name\":\"order_created\"},\"data\":{\"attributes\":{\"identifier\":\"ls-order-2\"}}}",
+    "secrets": ["lemon-secret"]
+  },
+  "expected": {
+    "signature_valid": false,
+    "signature_error_contains": "lemon-squeezy signature mismatch",
+    "provider_event_id": "ls-order-2",
+    "event_type": "order_created"
+  }
+}

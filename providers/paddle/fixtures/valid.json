@@ -1,0 +1,18 @@
+{
+  "description": "Valid Paddle signature should accept and extract event id plus event type.",
+  "request": {
+    "method": "POST",
+    "headers": {
+      "Paddle-Signature": "ts=1714000000;h1=481dbb291699288bd285510a4cef6ed8001916624d5e14737d0481d7b1b518b0"
+    },
+    "query": {},
+    "body": "{\"event_id\":\"paddle_evt_1\",\"event_type\":\"subscription.updated\"}",
+    "secrets": ["paddle-secret"],
+    "now_s": 1714000000
+  },
+  "expected": {
+    "signature_valid": true,
+    "provider_event_id": "paddle_evt_1",
+    "event_type": "subscription.updated"
+  }
+}
