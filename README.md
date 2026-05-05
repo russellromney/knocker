@@ -2,9 +2,9 @@
   <img src="./logo-transparent.png" alt="" width="180" /><br/>knocker
 </h1>
 
-`knocker` is an embeddable inbound webhook inbox on SQLite. It stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
+`knocker` is a loadable SQLite extension plus language bindings for building an embeddable inbound webhook inbox. It stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and lets workers in the same process or another process handle those events later using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
 
-Knocker's durable semantics live in shared Rust/SQLite code. Today the richest operator and app-facing surface is the Python binding, and the repo also ships thin runtime bindings over the same shared SQLite contract for Node, Bun, Ruby, Go, and Elixir.
+Knocker's durable semantics live in shared Rust/SQLite code. The repo ships bindings over the same SQLite contract for Python, Node, Bun, Ruby, Go, and Elixir.
 
 Knocker is for apps that already have an HTTP server, a SQLite database, and local business logic. It is not a hosted webhook relay, not a broker, and not a framework adapter package.
 
@@ -60,7 +60,7 @@ await app.run_worker()
 
 `receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `app.endpoint(...)` is the simpler endpoint-local helper; `add_endpoint(...)` and `@app.handle(...)` remain available when you prefer the more explicit shape.
 
-If you want the thin SQLite bindings instead of the richer Python API, see [SQLite bindings](https://knocker.dev/reference/sqlite-bindings/).
+For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knocker.dev/reference/sqlite-bindings/).
 
 ## What you can use it for
 
@@ -70,7 +70,7 @@ If you want the thin SQLite bindings instead of the richer Python API, see [SQLi
 - Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries
 - Run synchronous handlers later with retries, dead-lettering, replay, and requeue
 - Commit handler business writes atomically with Knocker's handled transition and queue ack
-- Inspect events and deliveries from Python before building app-specific admin routes
+- Inspect events and deliveries before building app-specific admin routes
 - Prune handled, ignored, and orphan-delivery rows explicitly when you choose
 - Run retention automation against the same SQLite file with core-owned prune semantics and Honker-backed recurrence
 
@@ -83,8 +83,7 @@ from fastapi import Request, Response
 
 @api.post("/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    result = app.receive(
-        endpoint="stripe",
+    result = stripe.receive(
         body=await request.body(),
         headers=dict(request.headers),
         query=dict(request.query_params),
@@ -96,7 +95,7 @@ See [Framework integration](https://knocker.dev/guides/framework-integration/) f
 
 ## Operator surface
 
-The richest operator surface today is Python:
+Operator actions are durable SQLite operations exposed through the bindings:
 
 ```python
 events = app.list_events(endpoint="stripe", since=1700000000, limit=50)
@@ -125,18 +124,18 @@ See the [Operator runbook](https://knocker.dev/guides/operator-runbook/) for the
 - Generic queue API; Honker owns that layer
 - Operator API server or HTML admin
 - Exactly-once side effects
-- Full operator-surface parity across every non-Python binding
+- Hosted packages for every binding runtime
 
 ## Repo layout
 
 - `knocker-core/`: Rust core for Knocker-owned SQLite semantics
 - `knocker-extension/`: loadable SQLite extension for cross-language contract testing
-- `packages/knocker/`: richest Python binding and operator surface
-- `packages/knocker-node/`: thin Node binding over the shared SQLite contract
-- `packages/knocker-bun/`: thin Bun binding over the shared SQLite contract
-- `packages/knocker-ruby/`: thin Ruby binding over the shared SQLite contract
-- `packages/knocker-go/`: thin Go binding over the shared SQLite contract
-- `packages/knocker-elixir/`: thin Elixir binding over the shared SQLite contract
+- `packages/knocker/`: Python binding
+- `packages/knocker-node/`: Node binding over the shared SQLite contract
+- `packages/knocker-bun/`: Bun binding over the shared SQLite contract
+- `packages/knocker-ruby/`: Ruby binding over the shared SQLite contract
+- `packages/knocker-go/`: Go binding over the shared SQLite contract
+- `packages/knocker-elixir/`: Elixir binding over the shared SQLite contract
 - `site/`: Astro/Starlight docs site for `knocker.dev`
 - `SYSTEM.md`: current English model of the system
 - `.intent/phases/`: spec diffs, plans, reviews, and commit records
