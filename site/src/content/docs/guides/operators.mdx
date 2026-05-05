@@ -3,60 +3,174 @@ title: Operator surface
 description: Inspect stored events and deliveries, then apply event-level recovery actions.
 ---
 
-Knocker's operator actions are durable SQLite operations exposed through the language bindings. It is not a built-in HTTP control plane.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Knocker's operator actions are durable SQLite operations exposed through the
+language bindings. It is not a built-in HTTP control plane.
 
 For production recovery recipes, see the [Operator runbook](/guides/operator-runbook/).
 
-## Read events
+## Common Operations
 
-```text
-list_events(status="failed", endpoint="stripe", event_type="checkout.session.completed", since=1700000000, limit=50)
+<Tabs>
+  <TabItem label="Bun">
+
+```ts
+const events = webhooks.listEvents(50);
+const invalid = webhooks.listDeliveries({
+  endpoint: "stripe",
+  signatureValid: false,
+  orphaned: true,
+  since: 1700000000,
+  limit: 50,
+});
+
+const event = webhooks.getEvent(42);
+const delivery = webhooks.getDelivery(99);
+
+webhooks.ignore(event.id);
+webhooks.replay(event.id);
+webhooks.requeue(event.id);
+webhooks.replayDelivery(delivery.id);
 ```
 
-Event lists are:
+  </TabItem>
+  <TabItem label="Elixir">
 
-- newest-first
-- inclusive on `since`
-- bounded to `1..1000`
+```elixir
+{:ok, events} = KnockerSqlite.list_events(webhooks, 50)
+{:ok, invalid} =
+  KnockerSqlite.list_deliveries(webhooks, %{
+    endpoint: "stripe",
+    signature_valid: false,
+    orphaned: true,
+    since: 1_700_000_000,
+    limit: 50
+  })
 
-## Read deliveries
+{:ok, event} = KnockerSqlite.get_event(webhooks, 42)
+{:ok, delivery} = KnockerSqlite.get_delivery(webhooks, 99)
 
-```text
-list_deliveries(endpoint="stripe", signature_valid=false, orphaned=true, since=1700000000, limit=50)
+{:ok, :ignored} = KnockerSqlite.ignore(webhooks, event["id"])
+{:ok, _} = KnockerSqlite.replay(webhooks, event["id"])
+{:ok, _} = KnockerSqlite.requeue(webhooks, event["id"])
+{:ok, _} = KnockerSqlite.replay_delivery(webhooks, delivery["id"])
 ```
 
-`signature_valid=False` means "not true," so it includes both explicit invalid deliveries and deliveries whose verification state is `NULL`.
+  </TabItem>
+  <TabItem label="Go">
 
-## Inspect one row
+```go
+events, err := webhooks.ListEvents(50)
+if err != nil {
+    return err
+}
 
-```text
-get_event(42)
-get_delivery(99)
-list_deliveries(event_id=42, limit=50)
+event, err := webhooks.GetEvent(42)
+if err != nil {
+    return err
+}
+
+delivery, err := webhooks.GetDelivery(99)
+if err != nil {
+    return err
+}
+
+_ = webhooks.Ignore(event.ID)
+_ = webhooks.Replay(event.ID)
+_ = webhooks.Requeue(event.ID)
+_ = webhooks.ReplayDelivery(delivery.ID)
 ```
 
-Use `Event` rows for processing identity and `Delivery` rows for receipt-level audit/debugging.
+  </TabItem>
+  <TabItem label="Node">
 
-## Event-level actions
+```js
+const event = webhooks.getEvent(42);
+const delivery = webhooks.getDelivery(99);
+const related = webhooks.listDeliveriesForEvent(event.id);
+const invalid = webhooks.listDeliveries({
+  endpoint: "stripe",
+  signatureValid: false,
+  orphaned: true,
+  since: 1700000000,
+  limit: 50,
+});
 
-```text
-ignore(event_id)
-replay(event_id)
-requeue(event_id)
-replay_delivery(delivery_id)
+webhooks.ignore(event.id);
+webhooks.replay(event.id);
+webhooks.requeue(event.id);
+webhooks.replayDelivery(delivery.id);
 ```
+
+  </TabItem>
+  <TabItem label="Python">
+
+```python
+events = webhooks.list_events(endpoint="stripe", limit=50)
+invalid = webhooks.list_deliveries(
+    endpoint="stripe",
+    signature_valid=False,
+    orphaned=True,
+    since=1700000000,
+    limit=50,
+)
+
+event = webhooks.get_event(42)
+delivery = webhooks.get_delivery(99)
+
+webhooks.ignore(event.id)
+webhooks.replay(event.id)
+webhooks.requeue(event.id)
+webhooks.replay_delivery(delivery.id)
+```
+
+  </TabItem>
+  <TabItem label="Ruby">
+
+```ruby
+events = webhooks.list_events(limit: 50)
+invalid = webhooks.list_deliveries(
+  endpoint: "stripe",
+  signature_valid: false,
+  orphaned: true,
+  since: 1_700_000_000,
+  limit: 50,
+)
+
+event = webhooks.get_event(42)
+delivery = webhooks.get_delivery(99)
+
+webhooks.ignore(event["id"])
+webhooks.replay(event["id"])
+webhooks.requeue(event["id"])
+webhooks.replay_delivery(delivery["id"])
+```
+
+  </TabItem>
+</Tabs>
+
+## Semantics
+
+Event lists are newest-first, inclusive on `since`, and bounded. Delivery
+reads preserve receipt-level audit/debugging details, including invalid and
+orphaned receipts.
 
 Current action semantics:
 
-- `ignore(...)` is allowed from `received`, `failed`, or `dead`
-- `ignore(...)` is a no-op when the event is already `ignored`
-- `replay(...)` is allowed from `handled`, `failed`, `dead`, or `ignored`
-- `requeue(...)` is allowed from `failed`, `dead`, or `ignored`
-- `replay(...)` and `requeue(...)` use the canonical `Event` payload
-- `replay_delivery(...)` is explicit and delivery-level: it processes the specified stored `Delivery` body through the linked event's handler without mutating the canonical `Event` payload
+- `ignore(...)` is allowed from `received`, `failed`, or `dead`.
+- `ignore(...)` is a no-op when the event is already `ignored`.
+- `replay(...)` is allowed from `handled`, `failed`, `dead`, or `ignored`.
+- `requeue(...)` is allowed from `failed`, `dead`, or `ignored`.
+- `replay(...)` and `requeue(...)` use the canonical `Event` payload.
+- `replay_delivery(...)` is explicit and delivery-level: it processes the specified stored `Delivery` body through the linked event's handler without mutating the canonical `Event` payload.
 
-Provider redelivery of a dead event is audit-only. Knocker stores the new `Delivery`, keeps duplicate ingest non-mutating, and waits for an operator to call `requeue(...)` or `replay_delivery(...)`.
+Provider redelivery of a dead event is audit-only. Knocker stores the new
+`Delivery`, keeps duplicate ingest non-mutating, and waits for an operator
+to call `requeue(...)` or `replay_delivery(...)`.
 
-## Concurrency model
+## Concurrency Model
 
-Operator reads are best-effort under concurrent worker activity. They are good for inspection and manual recovery, but they are not advertised as a cross-call snapshot API.
+Operator reads are best-effort under concurrent worker activity. They are
+good for inspection and manual recovery, but they are not advertised as a
+cross-call snapshot API.

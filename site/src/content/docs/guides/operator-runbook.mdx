@@ -9,31 +9,19 @@ This page is the "3 AM" checklist.
 
 ## First checks
 
-Start by listing recent events and deliveries for the endpoint you care about:
-
-```text
-list_events(endpoint="stripe", limit=50)
-list_deliveries(endpoint="stripe", signature_valid=false, limit=50)
-list_deliveries(endpoint="stripe", orphaned=true, limit=50)
-```
+Start by listing recent events and deliveries for the endpoint you care
+about: recent events, invalid deliveries, and orphan deliveries. Use the
+[Operator surface](/guides/operators/) page for binding-specific calls.
 
 Use `Event` rows to understand processing state. Use `Delivery` rows to understand what HTTP receipts arrived.
 
 ## Provider says it sent the webhook, but my handler did not run
 
-Check for an orphan delivery first:
-
-```text
-list_deliveries(endpoint="stripe", orphaned=true, since=1700000000, limit=50)
-```
+Check for an orphan delivery first.
 
 If a delivery is orphaned with `signature_valid=False`, Knocker stored the receipt but did not create or enqueue an event because verification failed.
 
-If there is a linked delivery, inspect the event:
-
-```text
-get_event(delivery.event_id)
-```
+If there is a linked delivery, inspect the event with `get_event(...)`.
 
 Common statuses:
 
@@ -48,18 +36,8 @@ Common statuses:
 
 Dead events do not automatically reactivate when the provider retries. Duplicate ingress is non-mutating: Knocker stores another `Delivery`, keeps the existing `Event` dead, and does not enqueue work.
 
-Pick the recovery you actually mean:
-
-```text
-requeue(event_id)
-```
-
-Use `requeue(...)` when you want to process the canonical event payload again.
-
-```text
-list_deliveries(event_id=event_id, limit=20)
-replay_delivery(delivery_id)
-```
+Pick the recovery you actually mean. Use `requeue(...)` when you want to
+process the canonical event payload again.
 
 Use `replay_delivery(...)` when you want to process one specific stored delivery body, for example a provider redelivery whose payload differs from the canonical event body.
 
@@ -67,23 +45,18 @@ Both paths reset `attempt_count` to `0`, so the dead-letter clock starts over.
 
 ## Event should not run
 
-Ignore events that are still safe to skip:
-
-```text
-ignore(event_id)
-```
-
-`ignore(...)` is accepted from `received`, `failed`, and `dead`. It is a no-op when the event is already `ignored`, and it rejects `processing` and `handled`.
+Ignore events that are still safe to skip. `ignore(...)` is accepted from
+`received`, `failed`, and `dead`. It is a no-op when the event is already
+`ignored`, and it rejects `processing` and `handled`.
 
 If a queued job for the event is claimed later, the worker short-circuits it without invoking the handler.
 
 ## Worker died
 
-If `run_worker(...)` raises outside normal handler retry/dead-letter handling, Knocker records local worker state and calls `on_error` before re-raising:
-
-```text
-worker_states()
-```
+If `run_worker(...)` raises outside normal handler retry/dead-letter
+handling, Knocker records local worker state and calls `on_error` before
+re-raising. Inspect worker state through your binding's worker-state helper
+where available.
 
 Knocker does not supervise your process. Wrap `run_worker(...)` in your app's normal task supervision or process manager, and restart it the same way you restart the rest of your application.
 
@@ -120,29 +93,10 @@ one process are a degraded contention mode.
 
 ## Before pruning
 
-Pruning is explicit and irreversible. Preview candidates with the read APIs first:
-
-```text
-list_events(status="handled", since=0, limit=100)
-```
-
-Then prune with a bounded threshold:
-
-```text
-prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
-```
-
-Or prune old orphan deliveries separately:
-
-```text
-prune_orphan_deliveries(older_than=1700000000, limit=100)
-```
-
-Every prune call writes a durable audit row. Inspect the trail:
-
-```text
-list_prune_audits(limit=20)
-```
+Pruning is explicit and irreversible. Preview candidates with read APIs
+first, then prune with a bounded threshold. Prune old orphan deliveries
+separately. Every prune call writes a durable audit row. Use the
+[Retention and pruning](/guides/retention/) page for binding-specific calls.
 
 Audit rows include what was deleted, when, and which filters were used. Even a no-op prune (zero rows deleted) records an audit row so the operator timeline is unambiguous.
 

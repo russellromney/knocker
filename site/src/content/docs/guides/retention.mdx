@@ -3,6 +3,8 @@ title: Retention and pruning
 description: Explicit, bounded pruning for handled, ignored, and orphan-delivery rows.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Knocker keeps retention intentionally small:
 
 - explicit prune primitives remain the source of truth
@@ -11,19 +13,177 @@ Knocker keeps retention intentionally small:
 - no richer policy engine
 - no calendar or cron semantics
 
+## Examples
+
+<Tabs>
+  <TabItem label="Bun">
+
+```ts
+const summary = webhooks.pruneEvents({
+  statuses: ["handled", "ignored"],
+  olderThan: 1700000000,
+  limit: 100,
+});
+
+const orphans = webhooks.pruneOrphanDeliveries({
+  olderThan: 1700000000,
+  limit: 100,
+});
+
+const audits = webhooks.listPruneAudits({ kind: "prune_events", limit: 50 });
+
+await webhooks.runRetention({
+  intervalMs: 60_000,
+  maxRuns: 1,
+  eventOlderThanS: 7 * 24 * 60 * 60,
+  orphanDeliveriesOlderThanS: 24 * 60 * 60,
+});
+```
+
+  </TabItem>
+  <TabItem label="Elixir">
+
+```elixir
+{:ok, summary} =
+  KnockerSqlite.prune_events(webhooks, %{
+    statuses: ["handled", "ignored"],
+    older_than: 1_700_000_000,
+    limit: 100
+  })
+
+{:ok, orphans} =
+  KnockerSqlite.prune_orphan_deliveries(webhooks, %{
+    older_than: 1_700_000_000,
+    limit: 100
+  })
+
+{:ok, audits} = KnockerSqlite.list_prune_audits(webhooks, 50)
+
+1 =
+  KnockerSqlite.run_retention(webhooks, %{
+    max_runs: 1,
+    interval_ms: 60_000,
+    event_older_than_s: 7 * 24 * 60 * 60,
+    orphan_deliveries_older_than_s: 24 * 60 * 60
+  })
+```
+
+  </TabItem>
+  <TabItem label="Go">
+
+```go
+summary, err := webhooks.PruneEvents([]string{"handled", "ignored"}, 1700000000, 100)
+if err != nil {
+    return err
+}
+
+orphans, err := webhooks.PruneOrphanDeliveries(1700000000, 100)
+if err != nil {
+    return err
+}
+
+audits, err := webhooks.ListPruneAudits(50)
+if err != nil {
+    return err
+}
+
+eventAge := int64(7 * 24 * 60 * 60)
+orphanAge := int64(24 * 60 * 60)
+_, err = webhooks.RunRetention(ctx, knockersqlite.RetentionPolicy{
+    EventOlderThanS:            &eventAge,
+    OrphanDeliveriesOlderThanS: &orphanAge,
+}, time.Minute, 1)
+```
+
+  </TabItem>
+  <TabItem label="Node">
+
+```js
+const summary = webhooks.pruneEvents({
+  statuses: ["handled", "ignored"],
+  olderThan: 1700000000,
+  limit: 100,
+});
+
+const orphans = webhooks.pruneOrphanDeliveries({
+  olderThan: 1700000000,
+  limit: 100,
+});
+
+const audits = webhooks.listPruneAudits({ kind: "prune_events", limit: 50 });
+
+await webhooks.runRetention({
+  intervalMs: 60_000,
+  maxRuns: 1,
+  eventOlderThanS: 7 * 24 * 60 * 60,
+  orphanDeliveriesOlderThanS: 24 * 60 * 60,
+});
+```
+
+  </TabItem>
+  <TabItem label="Python">
+
+```python
+summary = webhooks.prune_events(
+    statuses=["handled", "ignored"],
+    older_than=1700000000,
+    limit=100,
+)
+
+orphans = webhooks.prune_orphan_deliveries(
+    older_than=1700000000,
+    limit=100,
+)
+
+audits = webhooks.list_prune_audits(kind="prune_events", limit=50)
+
+policy = knocker.RetentionPolicy(
+    interval_s=60,
+    event_older_than_s=7 * 24 * 60 * 60,
+    orphan_deliveries_older_than_s=24 * 60 * 60,
+)
+await webhooks.run_retention(policy, stop_event=stop)
+```
+
+  </TabItem>
+  <TabItem label="Ruby">
+
+```ruby
+summary = webhooks.prune_events(
+  statuses: %w[handled ignored],
+  older_than: 1_700_000_000,
+  limit: 100,
+)
+
+orphans = webhooks.prune_orphan_deliveries(
+  older_than: 1_700_000_000,
+  limit: 100,
+)
+
+audits = webhooks.list_prune_audits(kind: "prune_events", limit: 50)
+
+webhooks.run_retention(
+  interval_s: 60,
+  max_runs: 1,
+  event_older_than_s: 7 * 24 * 60 * 60,
+  orphan_deliveries_older_than_s: 24 * 60 * 60,
+)
+```
+
+  </TabItem>
+</Tabs>
+
 ## Retention Automation
 
 Bindings expose retention helpers over the same core retention-pass
 primitive. The policy shape is:
 
-```text
-interval
-event statuses
-event age cutoff
-event prune limit
-orphan-delivery age cutoff
-orphan-delivery prune limit
-```
+- interval
+- event statuses
+- event age cutoff
+- event prune limit
+- orphan-delivery age cutoff
+- orphan-delivery prune limit
 
 Important boundaries:
 
@@ -39,11 +199,7 @@ Configuration is simpler than runtime:
 - one process/instance should still be treated as the source of truth for
   retention configuration for a given database
 
-## Prune events
-
-```text
-prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
-```
+## Prune Events
 
 `older_than` is strict: rows qualify only when `received_at < older_than`.
 
@@ -60,26 +216,20 @@ Returned counts:
 - `deliveries_pruned`
 - `live_jobs_pruned`
 
-## Prune orphan deliveries
+## Prune Orphan Deliveries
 
-```text
-prune_orphan_deliveries(older_than=1700000000, limit=100)
-```
+This is about the orphan axis only: `event_id IS NULL`. It is not a generic
+"invalid deliveries" delete switch.
 
-This is about the orphan axis only: `event_id IS NULL`. It is not a generic "invalid deliveries" delete switch.
+## Append-Only Carve-Out
 
-## Append-only carve-out
+`knocker_deliveries` is append-only during normal ingest and operator
+inspection. Explicit pruning is the documented retention exception that may
+delete old delivery rows.
 
-`knocker_deliveries` is append-only during normal ingest and operator inspection. Explicit pruning is the documented retention exception that may delete old delivery rows.
+## Prune Audit Trail
 
-## Prune audit trail
-
-Every successful prune call records an audit row in the same transaction:
-
-```text
-list_prune_audits(kind="prune_events", since=1700000000, limit=50)
-```
-
+Every successful prune call records an audit row in the same transaction.
 Each `PruneAudit` includes:
 
 - `kind`: `'prune_events'` or `'prune_orphan_deliveries'`
@@ -88,9 +238,10 @@ Each `PruneAudit` includes:
 - `events_pruned`, `deliveries_pruned`, `attempts_pruned`, `live_jobs_pruned`
 - `summary_json`: operator inputs (`statuses`, `older_than`, `limit`)
 
-No-op prunes (zero rows deleted) still write an audit row with zero counts. Audit rows are never targeted by ordinary prune operations.
+No-op prunes (zero rows deleted) still write an audit row with zero counts.
+Audit rows are never targeted by ordinary prune operations.
 
-## What is deferred
+## What Is Deferred
 
 Still intentionally out of scope:
 

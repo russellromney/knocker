@@ -3,7 +3,7 @@ title: Getting started
 description: Pick a binding, store a webhook, and run a worker.
 ---
 
-import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Knocker is a loadable SQLite extension with thin language bindings. Start
 with the binding for the runtime you actually use:
@@ -39,6 +39,196 @@ Handlers receive a stored event plus a transaction handle. Business writes
 through that transaction commit atomically with Knocker's handled transition
 and queue acknowledgement. If the handler fails, those writes roll back
 before Knocker records retry/dead-letter state.
+
+## Minimal Example
+
+<Tabs>
+  <TabItem label="Bun">
+
+```ts
+import { KnockerSqlite } from "./packages/knocker-bun/index";
+
+const webhooks = new KnockerSqlite("app.db");
+
+webhooks.addEndpoint({
+  name: "automation",
+  path: "/webhooks/automation",
+  provider: "token-header",
+  secrets: ["dev-secret"],
+});
+
+webhooks.registerHandler("automation", (event, tx) => {
+  console.log("handled", event.id);
+}, "invoice.created");
+
+const result = webhooks.receive({
+  endpoint: "automation",
+  body: Buffer.from('{"id":"evt_1","type":"invoice.created"}'),
+  headers: { "X-Knocker-Token": "dev-secret" },
+});
+
+await webhooks.runWorker({ workerId: "bun-worker", maxJobs: 1 });
+```
+
+  </TabItem>
+  <TabItem label="Elixir">
+
+```elixir
+{:ok, opened} = KnockerSqlite.open("app.db")
+
+webhooks =
+  KnockerSqlite.register_handler(opened, "automation", "invoice.created", fn event, _tx ->
+    IO.inspect(event["id"], label: "handled")
+  end)
+
+{:ok, _endpoint_id} =
+  KnockerSqlite.add_endpoint(webhooks, %{
+    name: "automation",
+    path: "/webhooks/automation",
+    provider: "token-header",
+    enabled: true
+  })
+
+{:ok, result} =
+  KnockerSqlite.receive(webhooks, %{
+    endpoint: "automation",
+    provider: "token-header",
+    secrets: ["dev-secret"],
+    body: ~s({"id":"evt_1","type":"invoice.created"}),
+    headers: %{"X-Knocker-Token" => "dev-secret"}
+  })
+
+1 = KnockerSqlite.run_worker(webhooks, "elixir-worker", %{max_jobs: 1})
+```
+
+  </TabItem>
+  <TabItem label="Go">
+
+```go
+webhooks, err := knockersqlite.Open("app.db")
+if err != nil {
+    panic(err)
+}
+defer webhooks.Close()
+
+provider := "token-header"
+_, err = webhooks.AddEndpoint(knockersqlite.AddEndpointParams{
+    Name:     "automation",
+    Path:     "/webhooks/automation",
+    Provider: &provider,
+    Enabled:  true,
+    Secrets:  []string{"dev-secret"},
+})
+if err != nil {
+    panic(err)
+}
+
+webhooks.RegisterEventHandler("automation", "invoice.created", func(event knockersqlite.Event, tx *knockersqlite.Tx) error {
+    fmt.Println("handled", event.ID)
+    return nil
+})
+
+result, err := webhooks.Receive(knockersqlite.ReceiveParams{
+    Endpoint: "automation",
+    Body:     []byte(`{"id":"evt_1","type":"invoice.created"}`),
+    Headers:  map[string]any{"X-Knocker-Token": "dev-secret"},
+})
+if err != nil {
+    panic(err)
+}
+
+_, err = webhooks.RunWorker(context.Background(), "go-worker", 1)
+```
+
+  </TabItem>
+  <TabItem label="Node">
+
+```js
+import { KnockerSqlite } from "./packages/knocker-node/index.mjs";
+
+const webhooks = new KnockerSqlite("app.db");
+
+webhooks.addEndpoint({
+  name: "automation",
+  path: "/webhooks/automation",
+  provider: "token-header",
+  secrets: ["dev-secret"],
+});
+
+webhooks.registerHandler("automation", "invoice.created", (event, tx) => {
+  console.log("handled", event.id);
+});
+
+const result = webhooks.receive({
+  endpoint: "automation",
+  body: Buffer.from('{"id":"evt_1","type":"invoice.created"}'),
+  headers: { "X-Knocker-Token": "dev-secret" },
+});
+
+await webhooks.runWorker({ workerId: "node-worker", maxJobs: 1 });
+```
+
+  </TabItem>
+  <TabItem label="Python">
+
+```python
+import asyncio
+import knocker
+
+webhooks = knocker.open("app.db")
+automation = webhooks.endpoint(
+    "automation",
+    path="/webhooks/automation",
+    provider="token-header",
+    secrets=["dev-secret"],
+)
+
+@automation.handle("invoice.created")
+def handle_invoice(event, tx):
+    print("handled", event.id)
+
+result = automation.receive(
+    body=b'{"id":"evt_1","type":"invoice.created"}',
+    headers={"X-Knocker-Token": "dev-secret"},
+)
+
+stop = asyncio.Event()
+worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
+await asyncio.sleep(0.1)
+stop.set()
+await worker
+```
+
+  </TabItem>
+  <TabItem label="Ruby">
+
+```ruby
+require_relative "./packages/knocker-ruby/lib/knocker_sqlite"
+
+webhooks = KnockerSqlite::Database.open("app.db")
+
+webhooks.add_endpoint(
+  name: "automation",
+  path: "/webhooks/automation",
+  provider: "token-header",
+  secrets: ["dev-secret"],
+)
+
+webhooks.register_handler("automation", event_type: "invoice.created") do |event, tx|
+  puts "handled #{event['id']}"
+end
+
+result = webhooks.receive(
+  endpoint: "automation",
+  body: "{\"id\":\"evt_1\",\"type\":\"invoice.created\"}",
+  headers: { "X-Knocker-Token" => "dev-secret" },
+)
+
+webhooks.run_worker(worker_id: "ruby-worker", max_jobs: 1)
+```
+
+  </TabItem>
+</Tabs>
 
 ## What To Read Next
 

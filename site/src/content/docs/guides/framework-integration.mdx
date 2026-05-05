@@ -3,11 +3,18 @@ title: Framework integration
 description: Call Knocker from your own HTTP route without adding framework adapters.
 ---
 
-Knocker intentionally does not ship framework adapters. Your app owns HTTP routing; Knocker owns durable webhook storage, verification, dedupe, and later handler dispatch.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Why route glue beats a shipped adapter
+Knocker intentionally does not ship framework adapters. Your app owns HTTP
+routing; Knocker owns durable webhook storage, verification, dedupe, and
+later handler dispatch.
 
-A framework adapter would still need to read your framework's request object, preserve the raw signed body, pass headers through, and return a plain status response. That code is short, app-specific, and easier to audit when it lives next to the route it serves.
+## Why Route Glue Beats A Shipped Adapter
+
+A framework adapter would still need to read your framework's request
+object, preserve the raw signed body, pass headers through, and return a
+plain status response. That code is short, app-specific, and easier to
+audit when it lives next to the route it serves.
 
 Keeping this glue in docs also keeps Knocker's packages small: no web
 framework dependency choices leak into the durable webhook core.
@@ -18,36 +25,123 @@ The route glue is small in every framework:
 2. pass headers and query params through to `receive(...)`
 3. return `result.status_code`
 
-## Generic shape
-
-```text
-route /webhooks/provider:
-  body = read_raw_request_body()
-  headers = read_request_headers()
-  query = read_query_params()
-  result = endpoint.receive(body, headers, query)
-  return HTTP result.status_code
-```
-
 Use `receive(...)` from your route for normal verified ingress. Use
 `ingest(...)` only when another trusted layer has already decided the
 verification outcome.
 
-## Express
+## Route Examples
+
+<Tabs>
+  <TabItem label="Bun">
+
+```ts
+Bun.serve({
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/webhooks/provider") {
+      return new Response("not found", { status: 404 });
+    }
+
+    const result = webhooks.receive({
+      endpoint: "provider",
+      body: Buffer.from(await request.arrayBuffer()),
+      headers: Object.fromEntries(request.headers),
+      query: Object.fromEntries(url.searchParams),
+    });
+
+    return new Response(null, { status: Number(result.status_code) });
+  },
+});
+```
+
+  </TabItem>
+  <TabItem label="Elixir">
+
+```elixir
+post "/webhooks/provider" do
+  {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+  {:ok, result} =
+    KnockerSqlite.receive(webhooks, %{
+      endpoint: "provider",
+      provider: "token-header",
+      secrets: ["dev-secret"],
+      body: body,
+      headers: Map.new(conn.req_headers),
+      query: conn.query_params
+    })
+
+  send_resp(conn, result["status_code"], "")
+end
+```
+
+  </TabItem>
+  <TabItem label="Go">
+
+```go
+func webhookHandler(w http.ResponseWriter, r *http.Request) {
+    body, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "bad request", http.StatusBadRequest)
+        return
+    }
+
+    headers := map[string]any{}
+    for name, values := range r.Header {
+        if len(values) > 0 {
+            headers[name] = values[0]
+        }
+    }
+
+    result, err := webhooks.Receive(knockersqlite.ReceiveParams{
+        Endpoint: "provider",
+        Body:     body,
+        Headers:  headers,
+    })
+    if err != nil {
+        http.Error(w, "bad request", http.StatusBadRequest)
+        return
+    }
+
+    w.WriteHeader(result.StatusCode)
+}
+```
+
+  </TabItem>
+  <TabItem label="Node">
 
 ```js
-app.post("/webhooks/provider", express.raw({ type: "*/*" }), async (req, res) => {
+app.post("/webhooks/provider", express.raw({ type: "*/*" }), (req, res) => {
   const result = webhooks.receive({
     endpoint: "provider",
     body: req.body,
     headers: req.headers,
     query: req.query,
   });
+
   res.sendStatus(result.status_code);
 });
 ```
 
-## Rails
+  </TabItem>
+  <TabItem label="Python">
+
+```python
+from fastapi import Request, Response
+
+@api.post("/webhooks/provider")
+async def provider_webhook(request: Request):
+    result = webhooks.receive(
+        endpoint="provider",
+        body=await request.body(),
+        headers=dict(request.headers),
+        query=dict(request.query_params),
+    )
+    return Response(status_code=result.status_code)
+```
+
+  </TabItem>
+  <TabItem label="Ruby">
 
 ```ruby
 post "/webhooks/provider" do
@@ -57,52 +151,10 @@ post "/webhooks/provider" do
     headers: request.env.select { |key, _| key.start_with?("HTTP_") },
     query: params.to_h,
   )
+
   status result["status_code"]
 end
 ```
 
-## FastAPI or Starlette
-
-```python
-from fastapi import Request, Response
-
-@api.post("/webhooks/stripe")
-async def stripe_webhook(request: Request):
-    result = stripe.receive(
-        body=await request.body(),
-        headers=dict(request.headers),
-        query=dict(request.query_params),
-    )
-    return Response(status_code=result.status_code)
-```
-
-## Flask
-
-```python
-from flask import Response, request
-
-@flask_app.post("/webhooks/stripe")
-def stripe_webhook():
-    result = stripe.receive(
-        body=request.get_data(),
-        headers=dict(request.headers),
-        query=dict(request.args),
-    )
-    return Response(status=result.status_code)
-```
-
-## Django
-
-```python
-from django.http import HttpResponse
-from django.views.decorators.http import require_POST
-
-@require_POST
-def stripe_webhook(request):
-    result = stripe.receive(
-        body=request.body,
-        headers=dict(request.headers.items()),
-        query=request.GET.dict(),
-    )
-    return HttpResponse(status=result.status_code)
-```
+  </TabItem>
+</Tabs>
