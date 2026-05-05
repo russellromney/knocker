@@ -3,19 +3,22 @@ title: Verified ingress
 description: Configure endpoint verification, secret rotation, and correlation keys.
 ---
 
-Knocker keeps durable receipt semantics in SQLite. Bindings adapt host-language request objects, run provider verification, and call the shared ingest contract.
+Knocker keeps durable receipt semantics in SQLite. Bindings adapt
+host-language request objects and call shared ingress primitives; curated
+provider verification lives in the SQLite/Rust layer, while Python also
+supports app-local provider instances.
 
 ## Provider tiers
 
-Knocker exposes provider verification through a small public interface
+For Python app-local providers, Knocker exposes a small public interface
 (`Provider`, `ProviderRequest`, `ProviderResult`) plus a per-`Knocker`
-registry. There are three support tiers:
+registry. Across the product, provider support has three tiers:
 
-- **Curated built-in providers** ship inside `knockerlite`, are auto-registered,
-  and have repo-owned conformance fixtures under `providers/<name>/`.
-  Today: `stripe`, `github`, `shopify`, `slack`, `postmark`, `resend`,
-  `paddle`, and `lemon-squeezy`. The string `provider="..."` namespace is
-  reserved for these names.
+- **Curated built-in providers** ship in Knocker's shared provider set and
+  have repo-owned conformance fixtures under `providers/<name>/`. Today:
+  `stripe`, `github`, `shopify`, `slack`, `postmark`, `resend`, `paddle`,
+  and `lemon-squeezy`. The string `provider="..."` namespace is reserved for
+  these names across bindings.
 - **App-local providers** live in your own code. Pass a `Provider` instance
   directly to `add_endpoint(provider=AcmeProvider(), ...)` — no global
   registration needed.
@@ -25,11 +28,11 @@ registry. There are three support tiers:
   providers. Knocker does not auto-discover or load them.
 
 String provider names (`provider="..."`) are reserved for curated
-built-ins. App-local and community providers always pass a `Provider`
-instance to `add_endpoint(...)`; an instance whose `.name` collides with
-a curated name is rejected. There is no global string registry for
-non-curated providers, so a future curated addition cannot collide with
-your custom provider.
+built-ins. In Python, app-local and community providers pass a `Provider`
+instance to `add_endpoint(...)`; an instance whose `.name` collides with a
+curated name is rejected. There is no global string registry for
+non-curated providers, so a future curated addition cannot collide with your
+custom provider.
 
 If you need a hotfix for a curated built-in, write a distinctly-named
 `Provider` subclass and point your endpoint at the instance.

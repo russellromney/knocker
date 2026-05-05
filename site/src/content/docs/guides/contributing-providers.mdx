@@ -3,11 +3,12 @@ title: Contributing a curated provider
 description: How to propose a new built-in provider for Knocker, including the repo catalog and conformance fixtures.
 ---
 
-A curated provider is one that ships inside `knockerlite`, is auto-registered
-on every `Knocker` instance, and is supported by Knocker as a named provider
-(`provider="stripe"`, `provider="github"`, ...). Curated providers carry a
-support promise; the bar is intentionally higher than for app-local or
-community providers.
+A curated provider is one that ships in Knocker's shared provider set and is
+supported as a named provider (`provider="stripe"`, `provider="github"`, ...)
+across the SQLite extension and language bindings. Python also auto-registers
+these names on every `Knocker` instance. Curated providers carry a support
+promise; the bar is intentionally higher than for app-local or community
+providers.
 
 If you only need a provider for your own app, use the
 [app-local / community pattern](/guides/verified-ingress/#app-local-providers)
@@ -37,10 +38,10 @@ providers/
       missing_delivery_header.json
 ```
 
-The catalog is repo-owned conformance material. It is not part of the
-published wheel surface in this phase; runtime plugin loading,
-auto-discovery, and cross-language code generation are intentionally
-deferred.
+The catalog is repo-owned conformance material for the shared provider
+contract. Runtime plugin loading and auto-discovery are intentionally
+deferred; curated providers are implemented in shared core code rather than
+generated separately for each binding.
 
 ## `metadata.json` schema
 
@@ -93,21 +94,21 @@ specifics.
 **Request fields**
 
 - `method` — HTTP method, default `"POST"`.
-- `headers` — string-to-string map. Case is preserved as written; the
-  provider's `request.header(...)` looks up case-insensitively.
+- `headers` — string-to-string map. Case is preserved as written; provider
+  implementations look up headers case-insensitively.
 - `query` — string-to-string map.
 - `body` — UTF-8 string. The conformance loader encodes to bytes.
-- `secrets` — list of UTF-8 strings. The loader encodes to
-  `tuple[bytes, ...]` before invoking `Provider.verify(...)`.
+- `secrets` — list of UTF-8 strings. Python conformance tests encode these
+  before invoking `Provider.verify(...)`; shared SQLite receive tests pass the
+  same values through JSON to `knocker_receive(...)`.
 - `provider_options` — optional dict matching the provider's runtime
-  `provider_options=...` shape. The loader runs
-  `provider.validate_options(...)` before verifying, so unknown keys fail
-  loudly in the fixture.
-- `now_s` — optional integer seconds. For Stripe, the loader builds a
-  `_StripeProvider(clock=lambda: now_s)` so timestamp tolerance is
-  evaluated against an absolute, fixture-frozen point in time. Without
-  this, fixtures with absolute `t=...` would silently rot as wall-clock
-  drifts.
+  `provider_options=...` shape. Python validates this with
+  `provider.validate_options(...)`; shared SQLite receive consumes the same
+  JSON option shape.
+- `now_s` — optional integer seconds. Python provider tests can inject this
+  into provider clocks, and shared SQLite tests widen fixture tolerance where
+  needed so timestamped signatures remain stable instead of silently rotting
+  as wall-clock drifts.
 
 **Expected fields**
 
@@ -147,7 +148,8 @@ not rubber-stamp fixture diffs to make tests pass.
 
 - runtime plugin loading, native plugin ABI, WASM
 - automatic discovery of providers from installed Python packages
-- cross-language provider code generation (Node, Ruby, ...)
+- per-language provider implementations or code generation (bindings use the
+  shared SQLite provider verification path for curated providers)
 - provider deprecation/sunset policy (handled per-release in CHANGELOG
   if and when needed)
 

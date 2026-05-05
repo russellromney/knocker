@@ -1,8 +1,8 @@
 # knocker
 
-Python bindings for Knocker, a Python-first inbound webhook inbox on SQLite.
+Python bindings for Knocker, an embeddable inbound webhook inbox on SQLite.
 
-Knocker stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
+Knocker stores every HTTP receipt before returning success, dedupes provider retries into durable `Event` rows, and runs handlers later in the same process or another process using [Honker](https://honker.dev), the SQLite-backed durable queue this project depends on.
 
 Published package name: `knockerlite`. Python import name: `knocker`.
 
@@ -15,20 +15,20 @@ pip install knockerlite
 ```python
 import knocker
 
-app = knocker.open("app.db")
+webhooks = knocker.open("app.db")
 
-app.add_endpoint(
+webhooks.add_endpoint(
     name="stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
 )
 
-@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+@webhooks.handle(endpoint="stripe", event_type="checkout.session.completed")
 def handle_checkout(event, tx):
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
 
-result = app.receive(
+result = webhooks.receive(
     endpoint="stripe",
     body=raw_body_bytes,
     headers=headers,
@@ -43,11 +43,12 @@ Knocker intentionally does not ship framework adapters. Host apps own routes, re
 ## What you can use it for
 
 - Durable receipt storage before provider success
-- Stripe and generic HMAC-SHA256 verification with active secret rotation
+- Curated verification for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy, plus the legacy generic HMAC-SHA256 path
 - Deduped event processing over append-only delivery rows
 - Event-level retries, dead-lettering, replay, requeue, and explicit delivery replay
-- Python operator reads for events and deliveries
+- Operator reads for events, deliveries, worker state, and prune audits
 - Explicit pruning for handled, ignored, and orphan-delivery rows
+- Retention automation backed by the shared core retention primitive
 
 Handlers are synchronous and should stay short and DB-local. Slow outbound work belongs in app-owned follow-up jobs, and production apps should wrap `run_worker(...)` in their own restart/supervision harness.
 

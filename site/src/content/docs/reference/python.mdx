@@ -152,7 +152,7 @@ result = webhooks.ingest(
 )
 ```
 
-`ingest(...)` is trusted low-level ingress. It bypasses binding-owned verification by default, so most applications should call `receive(...)`.
+`ingest(...)` is trusted low-level ingress. It bypasses configured verification, so most applications should call `receive(...)`.
 
 Knocker does not expose framework adapters. Host apps read their own request body and headers, then call `receive(...)` from a route.
 

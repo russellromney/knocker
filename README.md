@@ -10,7 +10,7 @@ Knocker is for apps that already have an HTTP server, a SQLite database, and loc
 
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
 
-Knocker takes the approach that if SQLite is already your app database, webhook ingress should live in the same file. Your route reads the raw request body and calls `receive(...)`. Knocker verifies, stores a `Delivery`, creates or correlates a deduped `Event`, enqueues durable work, and returns a status code. Later, a local worker dispatches the stored event to your handler.
+Knocker takes the approach that if SQLite is already your app database, webhook ingress should live in the same file. Your route reads the raw request body and calls `receive(...)`. Knocker verifies, stores a `Delivery`, creates or correlates a deduped `Event`, enqueues durable work, and returns a status code. Later, a worker in the same process or another process dispatches the stored event to your handler.
 
 Docs live at [knocker.dev](https://knocker.dev).
 
@@ -56,7 +56,7 @@ return response_with_status(result.status_code)
 await webhooks.run_worker()
 ```
 
-`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `webhooks.endpoint(...)` is the simpler endpoint-local helper; `add_endpoint(...)` and `@webhooks.handle(...)` remain available when you prefer the more explicit shape.
+`receive(...)` is the normal verified-ingress path. Curated provider verification is shared by the SQLite/Rust layer across bindings; Python also supports app-local provider instances. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `webhooks.endpoint(...)` is the simpler Python endpoint-local helper; `add_endpoint(...)` and `@webhooks.handle(...)` remain available when you prefer the more explicit shape.
 
 For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knocker.dev/reference/sqlite-bindings/).
 
@@ -70,7 +70,7 @@ For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knoc
 - Commit handler business writes atomically with Knocker's handled transition and queue ack
 - Inspect events and deliveries before building app-specific admin routes
 - Prune handled, ignored, and orphan-delivery rows explicitly when you choose
-- Run retention automation against the same SQLite file with core-owned prune semantics and Honker-backed recurrence
+- Run retention helpers/automation against the same SQLite file with core-owned prune semantics
 
 ## One route
 
