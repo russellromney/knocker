@@ -24,8 +24,7 @@ from fastapi import Request, Response
 
 @api.post("/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    result = app.receive(
-        endpoint="stripe",
+    result = stripe.receive(
         body=await request.body(),
         headers=dict(request.headers),
         query=dict(request.query_params),
@@ -40,8 +39,7 @@ from flask import Response, request
 
 @flask_app.post("/webhooks/stripe")
 def stripe_webhook():
-    result = app.receive(
-        endpoint="stripe",
+    result = stripe.receive(
         body=request.get_data(),
         headers=dict(request.headers),
         query=dict(request.args),
@@ -57,8 +55,7 @@ from django.views.decorators.http import require_POST
 
 @require_POST
 def stripe_webhook(request):
-    result = app.receive(
-        endpoint="stripe",
+    result = stripe.receive(
         body=request.body,
         headers=dict(request.headers.items()),
         query=request.GET.dict(),
@@ -69,8 +66,7 @@ def stripe_webhook(request):
 ## Generic shape
 
 ```python
-result = app.receive(
-    endpoint="stripe",
+result = stripe.receive(
     body=raw_body_bytes,
     headers=headers,
     query=query_params,

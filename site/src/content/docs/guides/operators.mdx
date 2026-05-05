@@ -3,14 +3,14 @@ title: Operator surface
 description: Inspect stored events and deliveries, then apply event-level recovery actions.
 ---
 
-Knocker's operator surface is Python-first and intentionally in-process. It is not a built-in HTTP control plane.
+Knocker's operator actions are durable SQLite operations exposed through the language bindings. It is not a built-in HTTP control plane.
 
 For production recovery recipes, see the [Operator runbook](/guides/operator-runbook/).
 
 ## Read events
 
 ```python
-events = app.list_events(
+events = webhooks.list_events(
     status="failed",
     endpoint="stripe",
     event_type="checkout.session.completed",
@@ -28,7 +28,7 @@ Event lists are:
 ## Read deliveries
 
 ```python
-invalid = app.list_deliveries(
+invalid = webhooks.list_deliveries(
     endpoint="stripe",
     signature_valid=False,
     orphaned=True,
@@ -42,9 +42,9 @@ invalid = app.list_deliveries(
 ## Inspect one row
 
 ```python
-event = app.get_event(42)
-delivery = app.get_delivery(99)
-related = app.list_deliveries(event_id=event.id, limit=50)
+event = webhooks.get_event(42)
+delivery = webhooks.get_delivery(99)
+related = webhooks.list_deliveries(event_id=event.id, limit=50)
 ```
 
 Use `Event` rows for processing identity and `Delivery` rows for receipt-level audit/debugging.
@@ -52,10 +52,10 @@ Use `Event` rows for processing identity and `Delivery` rows for receipt-level a
 ## Event-level actions
 
 ```python
-app.ignore(event.id)
-app.replay(event.id)
-app.requeue(event.id)
-app.replay_delivery(delivery.id)
+webhooks.ignore(event.id)
+webhooks.replay(event.id)
+webhooks.requeue(event.id)
+webhooks.replay_delivery(delivery.id)
 ```
 
 Current action semantics:

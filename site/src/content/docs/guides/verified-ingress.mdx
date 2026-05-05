@@ -3,7 +3,7 @@ title: Verified ingress
 description: Configure endpoint verification, secret rotation, and correlation keys.
 ---
 
-Knocker keeps request verification in the Python binding and durable receipt semantics in SQLite.
+Knocker keeps durable receipt semantics in SQLite. Bindings adapt host-language request objects, run provider verification, and call the shared ingest contract.
 
 ## Provider tiers
 
@@ -40,7 +40,7 @@ Curating a new provider goes through the
 ## Built-in: Stripe
 
 ```python
-stripe = app.endpoint(
+stripe = webhooks.endpoint(
     "stripe",
     path="/webhooks/stripe",
     provider="stripe",
@@ -63,7 +63,7 @@ endpoint registration time so typos do not silently no-op.
 ## Built-in: GitHub
 
 ```python
-github = app.endpoint(
+github = webhooks.endpoint(
     "github",
     path="/webhooks/github",
     provider="github",
@@ -79,7 +79,7 @@ The GitHub provider:
 
 GitHub's `X-GitHub-Delivery` is stable across operator-initiated redeliveries
 from the GitHub dashboard, so Knocker treats a redelivery of the same
-delivery id as a duplicate. To force reprocessing, use `app.replay(...)` on
+delivery id as a duplicate. To force reprocessing, use `webhooks.replay(...)` on
 the stored event instead.
 
 ## App-local providers
@@ -118,8 +118,8 @@ class AcmeProvider(knocker.Provider):
         )
 
 
-app = knocker.open("knocker.db")
-app.add_endpoint(
+webhooks = knocker.open("knocker.db")
+webhooks.add_endpoint(
     name="acme",
     path="/webhooks/acme",
     provider=AcmeProvider(),
@@ -134,7 +134,7 @@ Community providers ship as ordinary host-language packages that expose a
 import knocker
 import acme_webhooks  # third-party community package
 
-app.add_endpoint(
+webhooks.add_endpoint(
     name="acme",
     path="/webhooks/acme",
     provider=acme_webhooks.provider(),
@@ -165,7 +165,7 @@ and stores an orphan delivery rather than crashing the caller.
 ## Provider registry inspection
 
 ```python
-versions = app.provider_versions()
+versions = webhooks.provider_versions()
 # {"stripe": "1.0.0", "github": "1.0.0", "shopify": "1.0.0"}
 ```
 
@@ -182,7 +182,7 @@ support promise. It stays available as the explicit
 `verification={...}` config path:
 
 ```python
-app.add_endpoint(
+webhooks.add_endpoint(
     name="acme",
     path="/webhooks/acme",
     verification={

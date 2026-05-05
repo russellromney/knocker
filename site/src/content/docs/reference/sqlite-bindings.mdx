@@ -1,12 +1,12 @@
 ---
-title: SQLite Bindings
-description: Minimal shared-contract bindings for Node, Bun, Ruby, Go, and Elixir.
+title: SQLite bindings
+description: Node, Bun, Ruby, Go, and Elixir bindings over Knocker's shared SQLite contract.
 ---
 
 Knocker is a loadable SQLite extension plus language bindings. The bindings
 on this page talk to the same shared SQLite contract as the Python package.
 
-Every binding in this page proves the same small baseline:
+Every binding in this page proves the same baseline:
 
 - open/bootstrap
 - endpoint registration
@@ -16,8 +16,9 @@ Every binding in this page proves the same small baseline:
 - `list_events`
 - `replay`
 
-These bindings are intentionally thin. They are not framework adapters and
-they do not try to mirror Python ergonomics yet.
+These bindings load the Knocker SQLite extension directly. They do not wrap
+separate Honker language packages; queue operations go through the shared
+SQLite functions exposed by the extension. They are not framework adapters.
 
 ## Node
 
@@ -31,6 +32,13 @@ db.addEndpoint({
   name: "github",
   path: "/webhooks/github",
   provider: "github",
+});
+
+db.ingest({
+  endpoint: "github",
+  body: Buffer.from('{"hello":"world"}'),
+  providerDeliveryId: "bun-delivery-1",
+  signatureValid: true,
 });
 
 const result = db.ingest({
@@ -60,6 +68,12 @@ db.addEndpoint({
   path: "/webhooks/github",
   provider: "github",
 });
+
+db.registerHandler("github", (event) => {
+  console.log("handled", event.id);
+});
+
+db.runWorkerOnce("bun-worker");
 ```
 
 ## Ruby
@@ -76,6 +90,19 @@ db.add_endpoint(
   provider: "github",
   enabled: true,
 )
+
+db.ingest(
+  endpoint: "github",
+  body: "{\"hello\":\"world\"}",
+  provider_delivery_id: "ruby-delivery-1",
+  signature_valid: true,
+)
+
+db.register_handler("github") do |event|
+  puts "handled #{event['id']}"
+end
+
+db.run_worker_once(worker_id: "ruby-worker")
 ```
 
 ## Go
@@ -83,19 +110,34 @@ db.add_endpoint(
 Source: `packages/knocker-go`
 
 ```go
-app, err := knockersqlite.Open("app.db")
+webhooks, err := knockersqlite.Open("app.db")
 if err != nil {
     panic(err)
 }
-defer app.Close()
+defer webhooks.Close()
 
 provider := "github"
-_, err = app.AddEndpoint(knockersqlite.AddEndpointParams{
+_, err = webhooks.AddEndpoint(knockersqlite.AddEndpointParams{
     Name:     "github",
     Path:     "/webhooks/github",
     Provider: &provider,
     Enabled:  true,
 })
+
+webhooks.RegisterHandler("github", func(event knockersqlite.Event) error {
+    return nil
+})
+
+deliveryID := "go-delivery-1"
+signatureValid := true
+_, err = webhooks.Ingest(knockersqlite.IngestParams{
+    Endpoint:           "github",
+    Body:               []byte(`{"hello":"world"}`),
+    ProviderDeliveryID: &deliveryID,
+    SignatureValid:     &signatureValid,
+})
+
+_, err = webhooks.RunWorkerOnce("go-worker")
 ```
 
 ## Elixir
@@ -103,15 +145,30 @@ _, err = app.AddEndpoint(knockersqlite.AddEndpointParams{
 Source: `packages/knocker-elixir`
 
 ```elixir
-{:ok, app} = KnockerSqlite.open("app.db")
+{:ok, opened} = KnockerSqlite.open("app.db")
+
+webhooks =
+  KnockerSqlite.register_handler(opened, "github", fn event ->
+    IO.inspect(event["id"], label: "handled")
+  end)
 
 {:ok, _endpoint_id} =
-  KnockerSqlite.add_endpoint(app, %{
+  KnockerSqlite.add_endpoint(webhooks, %{
     name: "github",
     path: "/webhooks/github",
     provider: "github",
     enabled: true
   })
+
+{:ok, _result} =
+  KnockerSqlite.ingest(webhooks, %{
+    endpoint: "github",
+    body: ~s({"hello":"world"}),
+    provider_delivery_id: "elixir-delivery-1",
+    signature_valid: true
+  })
+
+{:ok, _event_id} = KnockerSqlite.run_worker_once(webhooks, "elixir-worker")
 ```
 
 ## Testing

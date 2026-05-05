@@ -3,7 +3,7 @@ title: Operator runbook
 description: What to check when webhooks are failing, dead-lettered, duplicated, or ready to prune.
 ---
 
-Knocker is intentionally in-process. There is no built-in admin UI or operator HTTP API, so production recovery starts from the Python operator surface you own.
+Knocker is intentionally embedded. There is no built-in admin UI or operator HTTP API, so production recovery starts from the binding surface or admin route you own.
 
 This page is the "3 AM" checklist.
 
@@ -12,9 +12,9 @@ This page is the "3 AM" checklist.
 Start by listing recent events and deliveries for the endpoint you care about:
 
 ```python
-events = app.list_events(endpoint="stripe", limit=50)
-invalid = app.list_deliveries(endpoint="stripe", signature_valid=False, limit=50)
-orphans = app.list_deliveries(endpoint="stripe", orphaned=True, limit=50)
+events = webhooks.list_events(endpoint="stripe", limit=50)
+invalid = webhooks.list_deliveries(endpoint="stripe", signature_valid=False, limit=50)
+orphans = webhooks.list_deliveries(endpoint="stripe", orphaned=True, limit=50)
 ```
 
 Use `Event` rows to understand processing state. Use `Delivery` rows to understand what HTTP receipts arrived.
@@ -24,7 +24,7 @@ Use `Event` rows to understand processing state. Use `Delivery` rows to understa
 Check for an orphan delivery first:
 
 ```python
-deliveries = app.list_deliveries(
+deliveries = webhooks.list_deliveries(
     endpoint="stripe",
     orphaned=True,
     since=1700000000,
@@ -37,7 +37,7 @@ If a delivery is orphaned with `signature_valid=False`, Knocker stored the recei
 If there is a linked delivery, inspect the event:
 
 ```python
-event = app.get_event(delivery.event_id)
+event = webhooks.get_event(delivery.event_id)
 ```
 
 Common statuses:
@@ -56,14 +56,14 @@ Dead events do not automatically reactivate when the provider retries. Duplicate
 Pick the recovery you actually mean:
 
 ```python
-app.requeue(event.id)
+webhooks.requeue(event.id)
 ```
 
 Use `requeue(...)` when you want to process the canonical event payload again.
 
 ```python
-deliveries = app.list_deliveries(event_id=event.id, limit=20)
-app.replay_delivery(deliveries[0].id)
+deliveries = webhooks.list_deliveries(event_id=event.id, limit=20)
+webhooks.replay_delivery(deliveries[0].id)
 ```
 
 Use `replay_delivery(...)` when you want to process one specific stored delivery body, for example a provider redelivery whose payload differs from the canonical event body.
@@ -75,7 +75,7 @@ Both paths reset `attempt_count` to `0`, so the dead-letter clock starts over.
 Ignore events that are still safe to skip:
 
 ```python
-app.ignore(event.id)
+webhooks.ignore(event.id)
 ```
 
 `ignore(...)` is accepted from `received`, `failed`, and `dead`. It is a no-op when the event is already `ignored`, and it rejects `processing` and `handled`.
@@ -87,7 +87,7 @@ If a queued job for the event is claimed later, the worker short-circuits it wit
 If `run_worker(...)` raises outside normal handler retry/dead-letter handling, Knocker records local worker state and calls `on_error` before re-raising:
 
 ```python
-states = app.worker_states()
+states = webhooks.worker_states()
 for state in states:
     print(state.worker_id, state.running, state.current_event_id, state.last_error)
 ```
@@ -120,23 +120,23 @@ Representative local numbers on an Apple M1 Pro, Python 3.13.5, SQLite 3.49.1:
 - durable ingress-only: `5,000` events in `1.445s` (`3,460/s`, `0.289 ms/event`)
 - no-op-handler worker drain: `5,000` events in `1.836s` (`2,723/s`, `0.367 ms/event`)
 
-These numbers assume the ordinary same-process shape: one long-lived
-`knocker.open(...)` per process, reused for ingress and local workers.
-Opening many independent Knocker handles against one SQLite file is
-supported, but it is intentionally treated as a degraded contention mode.
+These numbers assume the ordinary hot path: one long-lived
+`knocker.open(...)` per process. Ingress and workers may run in separate
+processes against the same SQLite file, but many independent handles inside
+one process are a degraded contention mode.
 
 ## Before pruning
 
 Pruning is explicit and irreversible. Preview candidates with the read APIs first:
 
 ```python
-candidates = app.list_events(status="handled", since=0, limit=100)
+candidates = webhooks.list_events(status="handled", since=0, limit=100)
 ```
 
 Then prune with a bounded threshold:
 
 ```python
-summary = app.prune_events(
+summary = webhooks.prune_events(
     statuses=["handled", "ignored"],
     older_than=1700000000,
     limit=100,
@@ -146,7 +146,7 @@ summary = app.prune_events(
 Or prune old orphan deliveries separately:
 
 ```python
-summary = app.prune_orphan_deliveries(
+summary = webhooks.prune_orphan_deliveries(
     older_than=1700000000,
     limit=100,
 )
@@ -155,7 +155,7 @@ summary = app.prune_orphan_deliveries(
 Every prune call writes a durable audit row. Inspect the trail:
 
 ```python
-audits = app.list_prune_audits(limit=20)
+audits = webhooks.list_prune_audits(limit=20)
 for audit in audits:
     print(audit.kind, audit.executed_at, audit.summary_json)
 ```

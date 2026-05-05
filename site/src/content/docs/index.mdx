@@ -1,6 +1,6 @@
 ---
 title: Knocker
-description: Python-first inbound webhook inbox on SQLite.
+description: Loadable SQLite extension plus language bindings for durable webhook ingress.
 template: splash
 hero:
   tagline: Store first. Ack fast. Process later.
@@ -17,26 +17,24 @@ hero:
       icon: external
 ---
 
-Knocker is a Python-first inbound webhook inbox for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound events without adding a hosted control plane.
+Knocker is a loadable SQLite extension plus language bindings for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound webhook events without adding a hosted control plane.
 
-Published package name: `knockerlite`. Python import name: `knocker`.
-
-Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker runs later in the same process against rows already committed to SQLite.
+Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker in the same process or another process runs later against rows already committed to SQLite.
 
 Webhooks look simple until you need production answers: did we store before returning `2xx`, did this retry create duplicate work, why did this event not run, and can an operator replay it without spelunking logs?
 
 Knocker's answer is deliberately local:
 
-- one app process
+- your app process or worker process
 - one SQLite file
 - durable ingress before success
-- async processing later in the same process
+- async processing later through Honker-backed queue state
 
 ## What you can use it for
 
 - Store every inbound webhook receipt durably before returning provider success
 - Deduplicate provider retries into one event-level processing unit
-- Verify requests with Stripe or generic HMAC-SHA256, including active secret rotation
+- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, and Lemon Squeezy, plus the legacy generic HMAC-SHA256 path
 - Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries
 - Run synchronous handlers later with retries, dead-lettering, replay, and requeue
 - Commit handler business writes atomically with Knocker's handled transition and queue ack
@@ -47,20 +45,19 @@ Knocker's answer is deliberately local:
 ```python
 import knocker
 
-app = knocker.open("knocker.db")
-app.add_endpoint(
-    name="stripe",
+webhooks = knocker.open("knocker.db")
+stripe = webhooks.endpoint(
+    "stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
 )
 
-@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+@stripe.handle("checkout.session.completed")
 def handle_checkout(event, tx):
     tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
 
-result = app.receive(
-    endpoint="stripe",
+result = stripe.receive(
     body=b'{"id":"evt_1","type":"checkout.session.completed"}',
     headers={"stripe-signature": "..."},
 )

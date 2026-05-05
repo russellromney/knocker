@@ -5,7 +5,7 @@ description: Getting started, operator guidance, and reference for Knocker.
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Knocker is currently Python-first. The durable semantics live in Rust and SQLite, while the public ingress, handler, and operator surface is exposed through the Python binding.
+Knocker is a loadable SQLite extension plus language bindings. Durable webhook semantics live in Rust and SQLite, while each binding adapts its host language to the same stored contract.
 
 If you're new, read [Getting started](/getting-started/). If you're wiring Knocker into an existing web app, start with [Framework integration](/guides/framework-integration/). Otherwise, pick the job you need:
 
@@ -17,7 +17,8 @@ If you're new, read [Getting started](/getting-started/). If you're wiring Knock
   <LinkCard title="Operator surface" href="/guides/operators/" description="List, inspect, ignore, replay, and requeue stored events and deliveries." />
   <LinkCard title="Operator runbook" href="/guides/operator-runbook/" description="A 3 AM checklist for dead events, invalid deliveries, worker failures, and pruning." />
   <LinkCard title="Retention and pruning" href="/guides/retention/" description="Explicit, bounded pruning for handled, ignored, and orphan-delivery rows." />
-  <LinkCard title="Python API" href="/reference/python/" description="Stable public methods and result shapes in the shipped Python binding." />
+  <LinkCard title="Python API" href="/reference/python/" description="Python package methods and result shapes." />
+  <LinkCard title="SQLite bindings" href="/reference/sqlite-bindings/" description="Node, Bun, Ruby, Go, and Elixir bindings over the shared SQLite contract." />
   <LinkCard title="Roadmap" href="/roadmap/" description="What is still ahead after 0.1.0." />
 </CardGrid>
 

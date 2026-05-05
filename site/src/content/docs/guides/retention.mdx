@@ -6,7 +6,8 @@ description: Explicit, bounded pruning for handled, ignored, and orphan-delivery
 Knocker keeps retention intentionally small:
 
 - explicit prune primitives remain the source of truth
-- optional Python-first automation exists on top of Honker timing/queue primitives
+- automation runs through Honker scheduling/queue primitives
+- each automated run calls the shared core retention-pass primitive
 - no richer policy engine
 - no calendar or cron semantics
 
@@ -24,12 +25,11 @@ policy = knocker.RetentionPolicy(
     orphan_deliveries_limit=500,
 )
 
-await app.run_retention(policy, stop_event=stop)
+await webhooks.run_retention(policy, stop_event=stop)
 ```
 
 Important boundaries:
 
-- automation is Python-first in this phase
 - automation is intentionally small
 - recurrence comes from Honker Scheduler
 - each maintenance job calls the shared core retention-pass primitive
@@ -45,7 +45,7 @@ Configuration is simpler than runtime:
 ## Prune events
 
 ```python
-summary = app.prune_events(
+summary = webhooks.prune_events(
     statuses=["handled", "ignored"],
     older_than=1700000000,
     limit=100,
@@ -70,7 +70,7 @@ Returned counts:
 ## Prune orphan deliveries
 
 ```python
-orphans = app.prune_orphan_deliveries(
+orphans = webhooks.prune_orphan_deliveries(
     older_than=1700000000,
     limit=100,
 )
@@ -87,7 +87,7 @@ This is about the orphan axis only: `event_id IS NULL`. It is not a generic "inv
 Every successful prune call records an audit row in the same transaction:
 
 ```python
-audits = app.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
+audits = webhooks.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
 ```
 
 Each `PruneAudit` includes:

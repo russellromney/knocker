@@ -9,17 +9,17 @@ description: Install Knocker and store your first webhook in a few minutes.
 pip install knockerlite
 ```
 
-Knocker's published package name is `knockerlite`; the Python import name is `knocker`. The package is backed by the Rust `knocker-core` crate and Honker queue machinery underneath. The public product surface is Python-first.
+This page uses the Python package for a compact first run. Knocker's durable behavior lives in the shared SQLite extension contract, and the repo also includes bindings for Node, Bun, Ruby, Go, and Elixir.
 
 ## Open a database and register an endpoint
 
 ```python
 import knocker
 
-app = knocker.open("knocker.db")
+webhooks = knocker.open("knocker.db")
 
-app.add_endpoint(
-    name="stripe",
+stripe = webhooks.endpoint(
+    "stripe",
     path="/webhooks/stripe",
     provider="stripe",
     secrets=["whsec_123"],
@@ -35,7 +35,7 @@ That gives you:
 ## Register a handler
 
 ```python
-@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+@stripe.handle("checkout.session.completed")
 def handle_checkout(event, tx):
     tx.query(
         "INSERT INTO handled_events (event_id, provider_event_id) VALUES (?, ?)",
@@ -52,8 +52,7 @@ Writes through `tx` commit atomically with Knocker's `handled` transition and qu
 In examples, `receive(...)` is shown directly. In a real app, call it from your existing HTTP route after reading the raw body bytes and headers.
 
 ```python
-result = app.receive(
-    endpoint="stripe",
+result = stripe.receive(
     body=b'{"id":"evt_1","type":"checkout.session.completed"}',
     headers={"stripe-signature": "..."},
 )
@@ -72,7 +71,7 @@ import asyncio
 
 async def main():
     stop = asyncio.Event()
-    worker = asyncio.create_task(app.run_worker(stop_event=stop))
+    worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
     try:
         await asyncio.sleep(10)
     finally:
@@ -82,15 +81,15 @@ async def main():
 asyncio.run(main())
 ```
 
-The worker claims queued event jobs from Honker and dispatches them to your registered handlers.
+The worker claims queued event jobs from Honker and dispatches them to your registered handlers. It can run in the same process as ingress or in a separate process that opens the same SQLite file.
 
-`run_worker(...)` is a library primitive, not a daemon supervisor. In production, wrap it in your app's restart policy. You can inspect local process state with `app.worker_states()` and pass `on_error=...` for worker-loop failures outside normal handler retry/dead-letter handling.
+`run_worker(...)` is a library primitive, not a daemon supervisor. In production, wrap it in your app's restart policy. You can inspect local process state with `webhooks.worker_states()` and pass `on_error=...` for worker-loop failures outside normal handler retry/dead-letter handling.
 
 ## Inspect what landed
 
 ```python
-events = app.list_events(limit=10)
-deliveries = app.list_deliveries(limit=10)
+events = webhooks.list_events(limit=10)
+deliveries = webhooks.list_deliveries(limit=10)
 ```
 
 Use the operator surface to inspect durable state before you build any app-specific admin routes around it.

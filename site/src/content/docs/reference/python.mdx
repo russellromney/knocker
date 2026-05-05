@@ -3,14 +3,13 @@ title: Python API
 description: Stable public Knocker surface in Python today.
 ---
 
-The current public surface is richest in Python.
-
-Published package name: `knockerlite`. Python import name: `knocker`.
+This page documents the Python package. For Node, Bun, Ruby, Go, and Elixir,
+see [SQLite bindings](/reference/sqlite-bindings/).
 
 ## Construction
 
 ```python
-app = knocker.open(
+webhooks = knocker.open(
     "knocker.db",
     queue_name="knocker.events",
     visibility_timeout_s=60,
@@ -29,7 +28,7 @@ contention mode rather than the normal performance posture.
 Simpler endpoint-local shape:
 
 ```python
-stripe = app.endpoint(
+stripe = webhooks.endpoint(
     "stripe",
     path="/webhooks/stripe",
     provider="stripe",
@@ -45,7 +44,7 @@ def handle_checkout(event, tx):
 Equivalent explicit shape:
 
 ```python
-app.add_endpoint(
+webhooks.add_endpoint(
     name="stripe",
     path="/webhooks/stripe",
     provider="stripe",
@@ -53,7 +52,7 @@ app.add_endpoint(
     provider_options={"tolerance_s": 300},
 )
 
-@app.handle(endpoint="stripe", event_type="checkout.session.completed")
+@webhooks.handle(endpoint="stripe", event_type="checkout.session.completed")
 def handle_checkout(event, tx):
     ...
 ```
@@ -89,14 +88,14 @@ class AcmeProvider(knocker.Provider):
         )
 
 
-app.add_endpoint(
+webhooks.add_endpoint(
     name="acme",
     path="/webhooks/acme",
     provider=AcmeProvider(),
     secrets=["acme-secret"],
 )
 
-versions = app.provider_versions()
+versions = webhooks.provider_versions()
 # {"stripe": "1.0.0", "github": "1.0.0", "shopify": "1.0.0", ...}
 ```
 
@@ -118,7 +117,7 @@ For curated provider authoring, see
 ## Queue inspection
 
 ```python
-app.queue_name  # "knocker.events"
+webhooks.queue_name  # "knocker.events"
 ```
 
 `queue_name` is a read-only string property exposing the configured
@@ -138,7 +137,7 @@ result = stripe.receive(
 Lower-level contract entry:
 
 ```python
-result = app.ingest(
+result = webhooks.ingest(
     endpoint="stripe",
     body=b"...",
     headers={},
@@ -160,20 +159,20 @@ Knocker does not expose framework adapters. Host apps read their own request bod
 ## Reads
 
 ```python
-event = app.get_event(42)
-events = app.list_events(limit=50)
+event = webhooks.get_event(42)
+events = webhooks.list_events(limit=50)
 
-delivery = app.get_delivery(99)
-deliveries = app.list_deliveries(limit=50)
+delivery = webhooks.get_delivery(99)
+deliveries = webhooks.list_deliveries(limit=50)
 ```
 
 ## Actions
 
 ```python
-app.ignore(42)
-app.replay(42)
-app.requeue(42)
-app.replay_delivery(99)
+webhooks.ignore(42)
+webhooks.replay(42)
+webhooks.requeue(42)
+webhooks.replay_delivery(99)
 ```
 
 Accepted statuses:
@@ -188,8 +187,8 @@ Accepted statuses:
 ## Worker
 
 ```python
-await app.run_worker(stop_event=stop, on_error=report_worker_error)
-states = app.worker_states()
+await webhooks.run_worker(stop_event=stop, on_error=report_worker_error)
+states = webhooks.worker_states()
 ```
 
 Worker state is local and non-durable. Host apps own restart/supervision policy.
@@ -199,21 +198,20 @@ already-claimed buffered jobs before honoring a stop signal.
 ## Retention
 
 ```python
-summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
-orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
+summary = webhooks.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
+orphans = webhooks.prune_orphan_deliveries(older_than=1700000000, limit=100)
 
-audits = app.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
+audits = webhooks.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
 
 policy = knocker.RetentionPolicy(
     interval_s=3600,
     event_older_than_s=7 * 24 * 60 * 60,
     orphan_deliveries_older_than_s=24 * 60 * 60,
 )
-await app.run_retention(policy, stop_event=stop)
+await webhooks.run_retention(policy, stop_event=stop)
 ```
 
-`run_retention(...)` is Python-first in API shape but Honker-backed in
-execution. It registers recurring work through Honker Scheduler, and each
+`run_retention(...)` registers recurring work through Honker Scheduler, and each
 retention job calls the shared core retention-pass primitive, so automated runs write the
 same durable prune audit rows as manual calls. Multiple processes may run
 retention workers against the same SQLite file without duplicate prune runs;
