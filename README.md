@@ -8,8 +8,6 @@ Knocker's durable semantics live in shared Rust/SQLite code. The repo ships bind
 
 Knocker is for apps that already have an HTTP server, a SQLite database, and local business logic. It is not a hosted webhook relay, not a broker, and not a framework adapter package.
 
-Current install surfaces live in this repo. The Python package is published as `knockerlite` and imported as `knocker`; the other bindings are present as repo packages over the same SQLite extension contract.
-
 Webhooks look simple until you need to answer the boring production questions: did we store the request before returning `2xx`; did a provider retry create duplicate work; why did this event not run; can an operator replay it without guessing from logs?
 
 Knocker takes the approach that if SQLite is already your app database, webhook ingress should live in the same file. Your route reads the raw request body and calls `receive(...)`. Knocker verifies, stores a `Delivery`, creates or correlates a deduped `Event`, enqueues durable work, and returns a status code. Later, a local worker dispatches the stored event to your handler.
@@ -28,8 +26,8 @@ pip install knockerlite
 import asyncio
 import knocker
 
-app = knocker.open("app.db")
-stripe = app.endpoint(
+webhooks = knocker.open("app.db")
+stripe = webhooks.endpoint(
     "stripe",
     path="/webhooks/stripe",
     provider="stripe",
@@ -55,10 +53,10 @@ return response_with_status(result.status_code)
 ```
 
 ```python
-await app.run_worker()
+await webhooks.run_worker()
 ```
 
-`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `app.endpoint(...)` is the simpler endpoint-local helper; `add_endpoint(...)` and `@app.handle(...)` remain available when you prefer the more explicit shape.
+`receive(...)` is the binding-owned verified-ingress path. The lower-level `ingest(...)` method is trusted ingress for callers that already know the verification outcome. `webhooks.endpoint(...)` is the simpler endpoint-local helper; `add_endpoint(...)` and `@webhooks.handle(...)` remain available when you prefer the more explicit shape.
 
 For Node, Bun, Ruby, Go, and Elixir examples, see [SQLite bindings](https://knocker.dev/reference/sqlite-bindings/).
 
@@ -98,19 +96,19 @@ See [Framework integration](https://knocker.dev/guides/framework-integration/) f
 Operator actions are durable SQLite operations exposed through the bindings:
 
 ```python
-events = app.list_events(endpoint="stripe", since=1700000000, limit=50)
-invalid = app.list_deliveries(signature_valid=False, orphaned=True, limit=50)
+events = webhooks.list_events(endpoint="stripe", since=1700000000, limit=50)
+invalid = webhooks.list_deliveries(signature_valid=False, orphaned=True, limit=50)
 
-delivery = app.get_delivery(result.delivery_id)
-event_deliveries = app.list_deliveries(event_id=result.event_id)
+delivery = webhooks.get_delivery(result.delivery_id)
+event_deliveries = webhooks.list_deliveries(event_id=result.event_id)
 
-app.ignore(result.event_id)
-app.replay(result.event_id)          # handled, failed, dead, ignored
-app.requeue(result.event_id)         # failed, dead, ignored
-app.replay_delivery(delivery.id)     # explicit: process this stored delivery body
+webhooks.ignore(result.event_id)
+webhooks.replay(result.event_id)          # handled, failed, dead, ignored
+webhooks.requeue(result.event_id)         # failed, dead, ignored
+webhooks.replay_delivery(delivery.id)     # explicit: process this stored delivery body
 
-summary = app.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
-orphans = app.prune_orphan_deliveries(older_than=1700000000, limit=100)
+summary = webhooks.prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
+orphans = webhooks.prune_orphan_deliveries(older_than=1700000000, limit=100)
 ```
 
 Provider redelivery of an already-dead event is audit-only: Knocker stores the new `Delivery` but does not mutate or enqueue the existing `Event`. Recovery is explicit via `requeue(...)` or `replay_delivery(...)`.
