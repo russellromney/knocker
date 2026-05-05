@@ -5,13 +5,12 @@ description: How to propose a new built-in provider for Knocker, including the r
 
 A curated provider is one that ships in Knocker's shared provider set and is
 supported as a named provider (`provider="stripe"`, `provider="github"`, ...)
-across the SQLite extension and language bindings. Python also auto-registers
-these names on every `Knocker` instance. Curated providers carry a support
-promise; the bar is intentionally higher than for app-local or community
-providers.
+across the SQLite extension and language bindings. Curated providers carry a
+support promise; the bar is intentionally higher than for binding-local
+custom providers.
 
 If you only need a provider for your own app, use the
-[app-local / community pattern](/guides/verified-ingress/#app-local-providers)
+[binding-local provider extension point](/guides/verified-ingress/#python-custom-providers)
 instead. Curate a provider only when it is broadly useful and you are
 willing to help maintain it.
 
@@ -98,17 +97,15 @@ specifics.
   implementations look up headers case-insensitively.
 - `query` — string-to-string map.
 - `body` — UTF-8 string. The conformance loader encodes to bytes.
-- `secrets` — list of UTF-8 strings. Python conformance tests encode these
-  before invoking `Provider.verify(...)`; shared SQLite receive tests pass the
-  same values through JSON to `knocker_receive(...)`.
+- `secrets` — list of UTF-8 strings. Shared SQLite receive tests pass these
+  values through JSON to `knocker_receive(...)`; binding mirror tests use the
+  same fixture values.
 - `provider_options` — optional dict matching the provider's runtime
-  `provider_options=...` shape. Python validates this with
-  `provider.validate_options(...)`; shared SQLite receive consumes the same
-  JSON option shape.
-- `now_s` — optional integer seconds. Python provider tests can inject this
-  into provider clocks, and shared SQLite tests widen fixture tolerance where
-  needed so timestamped signatures remain stable instead of silently rotting
-  as wall-clock drifts.
+  `provider_options=...` shape. Shared SQLite receive consumes this JSON
+  option shape.
+- `now_s` — optional integer seconds. Tests use this for timestamped
+  providers so fixtures remain stable instead of silently rotting as
+  wall-clock drifts.
 
 **Expected fields**
 
@@ -147,7 +144,7 @@ not rubber-stamp fixture diffs to make tests pass.
 ## What is intentionally out of scope
 
 - runtime plugin loading, native plugin ABI, WASM
-- automatic discovery of providers from installed Python packages
+- automatic discovery of providers from installed packages
 - per-language provider implementations or code generation (bindings use the
   shared SQLite provider verification path for curated providers)
 - provider deprecation/sunset policy (handled per-release in CHANGELOG

@@ -11,21 +11,18 @@ Knocker keeps retention intentionally small:
 - no richer policy engine
 - no calendar or cron semantics
 
-## Retention automation
+## Retention Automation
 
-Python can run the existing prune primitives on a simple interval:
+Bindings expose retention helpers over the same core retention-pass
+primitive. The policy shape is:
 
-```python
-policy = knocker.RetentionPolicy(
-    interval_s=3600,
-    event_statuses=("handled", "ignored"),
-    event_older_than_s=7 * 24 * 60 * 60,
-    event_limit=500,
-    orphan_deliveries_older_than_s=24 * 60 * 60,
-    orphan_deliveries_limit=500,
-)
-
-await webhooks.run_retention(policy, stop_event=stop)
+```text
+interval
+event statuses
+event age cutoff
+event prune limit
+orphan-delivery age cutoff
+orphan-delivery prune limit
 ```
 
 Important boundaries:
@@ -44,12 +41,8 @@ Configuration is simpler than runtime:
 
 ## Prune events
 
-```python
-summary = webhooks.prune_events(
-    statuses=["handled", "ignored"],
-    older_than=1700000000,
-    limit=100,
-)
+```text
+prune_events(statuses=["handled", "ignored"], older_than=1700000000, limit=100)
 ```
 
 `older_than` is strict: rows qualify only when `received_at < older_than`.
@@ -69,11 +62,8 @@ Returned counts:
 
 ## Prune orphan deliveries
 
-```python
-orphans = webhooks.prune_orphan_deliveries(
-    older_than=1700000000,
-    limit=100,
-)
+```text
+prune_orphan_deliveries(older_than=1700000000, limit=100)
 ```
 
 This is about the orphan axis only: `event_id IS NULL`. It is not a generic "invalid deliveries" delete switch.
@@ -86,8 +76,8 @@ This is about the orphan axis only: `event_id IS NULL`. It is not a generic "inv
 
 Every successful prune call records an audit row in the same transaction:
 
-```python
-audits = webhooks.list_prune_audits(kind="prune_events", since=1700000000, limit=50)
+```text
+list_prune_audits(kind="prune_events", since=1700000000, limit=50)
 ```
 
 Each `PruneAudit` includes:

@@ -1,23 +1,23 @@
 ---
-title: SQLite bindings
-description: Node, Bun, Ruby, Go, and Elixir bindings over Knocker's shared SQLite contract.
+title: Binding overview
+description: Bun, Elixir, Go, Node, Python, and Ruby bindings over Knocker's shared SQLite contract.
 ---
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Knocker's non-Python bindings are thin language surfaces over the same
-loadable SQLite extension. They do not re-implement provider verification
-or queue semantics; curated `receive(...)` calls delegate to shared
-Rust/SQLite code.
+Knocker's language bindings are thin runtime surfaces over the same loadable
+SQLite extension. Curated `receive(...)` calls delegate to shared Rust/SQLite
+code, and queue/lifecycle operations go through the same SQLite functions.
 
 ## Binding Pages
 
 <CardGrid>
-  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
   <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
-  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
-  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
   <LinkCard title="Elixir" href="/reference/elixir/" description="Install and use Knocker from Elixir." />
+  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
+  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
+  <LinkCard title="Python" href="/reference/python/" description="Install and use Knocker from Python." />
+  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
 </CardGrid>
 
 ## Shared Baseline
@@ -42,10 +42,10 @@ Every binding in this section proves the same SQLite-contract baseline:
 - retention pass/loop helpers
 - prune/audit reads
 
-These bindings load the Knocker SQLite extension directly. They are not
-framework adapters and they do not wrap separate Honker language packages;
-queue operations go through shared SQLite functions exposed by the
-extension.
+Bindings load or package the Knocker SQLite extension directly. They are
+not framework adapters and they do not wrap separate Honker language
+packages; queue operations go through shared SQLite functions exposed by
+the extension.
 
 Curated provider names are the same across bindings: `stripe`, `github`,
 `shopify`, `slack`, `postmark`, `resend`, `paddle`, `lemon-squeezy`,
@@ -61,10 +61,11 @@ Repo-level commands:
 ```bash
 make test-node
 make test-bun
-make test-ruby
 make test-go
 make test-elixir
+make test-python
+make test-ruby
 ```
 
-`make test` runs the full Rust, Python, Node, Bun, Ruby, Go, and Elixir
+`make test` runs the full Rust, Bun, Elixir, Go, Node, Python, and Ruby
 suite together.

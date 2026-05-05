@@ -8,8 +8,8 @@ hero:
     file: ../../assets/logo-transparent.png
     alt: knocker logo
   actions:
-    - text: Read the docs
-      link: /docs/
+    - text: Pick a binding
+      link: /getting-started/
       icon: right-arrow
       variant: primary
     - text: GitHub
@@ -17,11 +17,33 @@ hero:
       icon: external
 ---
 
-Knocker is a loadable SQLite extension plus language bindings for Python, Node, Bun, Ruby, Go, and Elixir. It is for apps that already have an HTTP server, a SQLite database, and business logic that wants to react to inbound webhook events without adding a hosted control plane.
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create or correlate to a stored `Event`. A worker in the same process or another process runs later against rows already committed to SQLite.
+Knocker is a loadable SQLite extension plus language bindings for Bun,
+Elixir, Go, Node, Python, and Ruby. It is for apps that already have an HTTP
+server, a SQLite database, and business logic that wants to react to inbound
+webhook events without adding a hosted control plane.
 
-Webhooks look simple until you need production answers: did we store before returning `2xx`, did this retry create duplicate work, why did this event not run, and can an operator replay it without spelunking logs?
+Every inbound HTTP receipt is stored as a `Delivery`. Valid receipts create
+or correlate to a stored `Event`. A worker in the same process or another
+process runs later against rows already committed to SQLite.
+
+## Pick Your Runtime
+
+<CardGrid>
+  <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
+  <LinkCard title="Elixir" href="/reference/elixir/" description="Install and use Knocker from Elixir." />
+  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
+  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
+  <LinkCard title="Python" href="/reference/python/" description="Install and use Knocker from Python." />
+  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
+</CardGrid>
+
+## How It Works
+
+Webhooks look simple until you need production answers: did we store before
+returning `2xx`, did this retry create duplicate work, why did this event not
+run, and can an operator replay it without spelunking logs?
 
 Knocker's answer is deliberately local:
 
@@ -31,56 +53,20 @@ Knocker's answer is deliberately local:
 - durable ingress before success
 - async processing later through Honker-backed queue state
 
-## What you can use it for
+## What You Can Use It For
 
-- Store every inbound webhook receipt durably before returning provider success
-- Deduplicate provider retries into one event-level processing unit
-- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, Lemon Squeezy, Standard Webhooks/Svix, Clerk, Twilio, SendGrid, Linear, Meta, Discord, Zendesk, Intercom, HubSpot, and middleman-friendly token/basic/bearer auth shapes
-- Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries
-- Run synchronous handlers later with retries, dead-lettering, replay, and requeue
-- Commit handler business writes atomically with Knocker's handled transition and queue ack
-- Prune handled, ignored, and orphan-delivery rows explicitly when you choose
+- Store every inbound webhook receipt durably before returning provider success.
+- Deduplicate provider retries into one event-level processing unit.
+- Verify requests with curated built-ins for Stripe, GitHub, Shopify, Slack, Postmark, Resend, Paddle, Lemon Squeezy, Standard Webhooks/Svix, Clerk, Twilio, SendGrid, Linear, Meta, Discord, Zendesk, Intercom, HubSpot, and middleman-friendly token/basic/bearer auth shapes.
+- Keep an audit trail of valid, invalid, duplicate, and orphaned deliveries.
+- Run synchronous handlers later with retries, dead-lettering, replay, and requeue.
+- Commit handler business writes atomically with Knocker's handled transition and queue ack.
+- Prune handled, ignored, and orphan-delivery rows explicitly when you choose.
 
-## One example
+## What's Not Here
 
-```python
-import knocker
-
-webhooks = knocker.open("knocker.db")
-stripe = webhooks.endpoint(
-    "stripe",
-    path="/webhooks/stripe",
-    provider="stripe",
-    secrets=["whsec_123"],
-)
-
-@stripe.handle("checkout.session.completed")
-def handle_checkout(event, tx):
-    tx.query("INSERT INTO handled_events (event_id) VALUES (?)", [event.id])
-
-result = stripe.receive(
-    body=b'{"id":"evt_1","type":"checkout.session.completed"}',
-    headers={"stripe-signature": "..."},
-)
-
-assert result.status_code == 204
-assert result.delivery_id is not None
-assert result.event_id is not None
-```
-
-In a real app, the `receive(...)` call lives inside your own FastAPI, Flask, Django, or raw ASGI route. Knocker intentionally does not ship framework adapters; route glue stays in your app.
-
-## How it works
-
-- `receive(...)` verifies the request and stores a `Delivery`.
-- Valid deliveries create or correlate to a deduped `Event`.
-- Knocker enqueues one durable Honker job for a new event.
-- `run_worker(...)` claims stored event jobs and invokes your registered handler.
-- Handler writes through `tx` commit atomically with the handled transition and queue ack.
-
-## What's not here
-
-Knocker owns durable webhook receipt storage and later event processing on the same SQLite file. It does not try to be:
+Knocker owns durable webhook receipt storage and later event processing on
+the same SQLite file. It does not try to be:
 
 - a hosted webhook relay
 - a generic queue wrapper

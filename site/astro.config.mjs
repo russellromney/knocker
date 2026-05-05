@@ -58,13 +58,13 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
-            { label: 'Python API', slug: 'reference/python' },
-            { label: 'SQLite bindings', slug: 'reference/sqlite-bindings' },
-            { label: 'Node binding', slug: 'reference/node' },
+            { label: 'Binding overview', slug: 'reference/sqlite-bindings' },
             { label: 'Bun binding', slug: 'reference/bun' },
-            { label: 'Ruby binding', slug: 'reference/ruby' },
-            { label: 'Go binding', slug: 'reference/go' },
             { label: 'Elixir binding', slug: 'reference/elixir' },
+            { label: 'Go binding', slug: 'reference/go' },
+            { label: 'Node binding', slug: 'reference/node' },
+            { label: 'Python binding', slug: 'reference/python' },
+            { label: 'Ruby binding', slug: 'reference/ruby' },
           ],
         },
         {

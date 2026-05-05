@@ -9,14 +9,8 @@ For production recovery recipes, see the [Operator runbook](/guides/operator-run
 
 ## Read events
 
-```python
-events = webhooks.list_events(
-    status="failed",
-    endpoint="stripe",
-    event_type="checkout.session.completed",
-    since=1700000000,
-    limit=50,
-)
+```text
+list_events(status="failed", endpoint="stripe", event_type="checkout.session.completed", since=1700000000, limit=50)
 ```
 
 Event lists are:
@@ -27,35 +21,29 @@ Event lists are:
 
 ## Read deliveries
 
-```python
-invalid = webhooks.list_deliveries(
-    endpoint="stripe",
-    signature_valid=False,
-    orphaned=True,
-    since=1700000000,
-    limit=50,
-)
+```text
+list_deliveries(endpoint="stripe", signature_valid=false, orphaned=true, since=1700000000, limit=50)
 ```
 
 `signature_valid=False` means "not true," so it includes both explicit invalid deliveries and deliveries whose verification state is `NULL`.
 
 ## Inspect one row
 
-```python
-event = webhooks.get_event(42)
-delivery = webhooks.get_delivery(99)
-related = webhooks.list_deliveries(event_id=event.id, limit=50)
+```text
+get_event(42)
+get_delivery(99)
+list_deliveries(event_id=42, limit=50)
 ```
 
 Use `Event` rows for processing identity and `Delivery` rows for receipt-level audit/debugging.
 
 ## Event-level actions
 
-```python
-webhooks.ignore(event.id)
-webhooks.replay(event.id)
-webhooks.requeue(event.id)
-webhooks.replay_delivery(delivery.id)
+```text
+ignore(event_id)
+replay(event_id)
+requeue(event_id)
+replay_delivery(delivery_id)
 ```
 
 Current action semantics:

@@ -5,14 +5,11 @@ description: Configure endpoint verification, secret rotation, and correlation k
 
 Knocker keeps durable receipt semantics in SQLite. Bindings adapt
 host-language request objects and call shared ingress primitives; curated
-provider verification lives in the SQLite/Rust layer, while Python also
-supports app-local provider instances.
+provider verification lives in the SQLite/Rust layer.
 
 ## Provider tiers
 
-For Python app-local providers, Knocker exposes a small public interface
-(`Provider`, `ProviderRequest`, `ProviderResult`) plus a per-`Knocker`
-registry. Across the product, provider support has three tiers:
+Across the product, provider support has these tiers:
 
 - **Curated built-in providers** ship in Knocker's shared provider set and
   have repo-owned conformance fixtures under `providers/<name>/`. Today:
@@ -21,23 +18,16 @@ registry. Across the product, provider support has three tiers:
   `linear`, `meta`, `discord`, `zendesk`, `intercom`, `hubspot`,
   `token-header`, `bearer-token`, and `basic-auth`. The string
   `provider="..."` namespace is reserved for these names across bindings.
-- **App-local providers** live in your own code. Pass a `Provider` instance
-  directly to `add_endpoint(provider=AcmeProvider(), ...)` — no global
-  registration needed.
-- **Community providers** are ordinary Python packages that expose a
-  `Provider` value (often via a small `provider()` factory). Host apps
-  pass that value to `add_endpoint(...)` the same way as app-local
-  providers. Knocker does not auto-discover or load them.
+- **Binding-local provider extension points** live in host-language code.
+  Today this custom-provider object interface exists in the Python binding.
+  Curated providers should still move into shared Rust/SQLite code.
 
 String provider names (`provider="..."`) are reserved for curated
-built-ins. In Python, app-local and community providers pass a `Provider`
-instance to `add_endpoint(...)`; an instance whose `.name` collides with a
-curated name is rejected. There is no global string registry for
-non-curated providers, so a future curated addition cannot collide with your
-custom provider.
+built-ins. Custom providers should not compete in that string namespace.
 
-If you need a hotfix for a curated built-in, write a distinctly-named
-`Provider` subclass and point your endpoint at the instance.
+If you need a project-local hotfix before a provider fix lands in core, use
+your binding's local extension point where available and give it a distinct
+name.
 
 Curating a new provider goes through the
 [Curated provider contribution guide](/guides/contributing-providers/).
@@ -72,18 +62,18 @@ path and are available to every binding that exposes `receive(...)`.
 | `basic-auth` | `Authorization: Basic <base64(secret)>` | Useful when a webhook sender can set Basic Auth but not provider-specific HMAC signatures. |
 
 Every curated provider has repo-owned fixtures under `providers/<name>/`.
-Those fixtures are exercised by Rust core tests and by the Python provider
-mirror so the documented behavior stays tied to executable examples.
+Those fixtures are exercised by Rust core tests and binding mirror tests so
+the documented behavior stays tied to executable examples.
 
 ## Built-in: Stripe
 
-```python
-stripe = webhooks.endpoint(
-    "stripe",
-    path="/webhooks/stripe",
-    provider="stripe",
-    secrets=["whsec_old", "whsec_new"],
-    provider_options={"tolerance_s": 300},
+```text
+add_endpoint(
+  name="stripe",
+  path="/webhooks/stripe",
+  provider="stripe",
+  secrets=["whsec_old", "whsec_new"],
+  provider_options={"tolerance_s": 300},
 )
 ```
 
@@ -100,12 +90,12 @@ endpoint registration time so typos do not silently no-op.
 
 ## Built-in: GitHub
 
-```python
-github = webhooks.endpoint(
-    "github",
-    path="/webhooks/github",
-    provider="github",
-    secrets=["github-webhook-secret"],
+```text
+add_endpoint(
+  name="github",
+  path="/webhooks/github",
+  provider="github",
+  secrets=["github-webhook-secret"],
 )
 ```
 
@@ -131,22 +121,24 @@ shape:
 - `bearer-token`: compares `Authorization: Bearer <secret>`
 - `basic-auth`: compares `Authorization: Basic <base64 secret>`
 
-```python
-zapier = webhooks.endpoint(
-    "zapier",
-    path="/webhooks/zapier",
-    provider="token-header",
-    secrets=["shared-secret"],
+```text
+add_endpoint(
+  name="zapier",
+  path="/webhooks/zapier",
+  provider="token-header",
+  secrets=["shared-secret"],
 )
 ```
 
 Use `provider_options={"header": "x-my-secret"}` with `token-header` when
 your automation tool already has a fixed header name.
 
-## App-local providers
+## Python Custom Providers
 
-Implement the small `Provider` interface and pass your instance directly to
-`add_endpoint(...)`. Curated string names like `"stripe"`, `"github"`,
+The Python binding also exposes a custom-provider object interface for
+project-local providers. Implement the small `Provider` interface and pass
+your instance directly to `add_endpoint(...)`. Curated string names like
+`"stripe"`, `"github"`,
 `"shopify"`, `"slack"`, `"postmark"`, `"resend"`, `"paddle"`,
 `"lemon-squeezy"`, `"standard-webhooks"`, `"clerk"`, `"twilio"`,
 `"sendgrid"`, `"linear"`, `"meta"`, `"discord"`, `"zendesk"`,
@@ -191,8 +183,8 @@ webhooks.add_endpoint(
 )
 ```
 
-Community providers ship as ordinary host-language packages that expose a
-`Provider` value. Host apps register them at `add_endpoint(...)` time:
+Python community providers ship as ordinary packages that expose a
+`Provider` value. Apps register them at `add_endpoint(...)` time:
 
 ```python
 import knocker
@@ -226,17 +218,14 @@ If your `Provider.verify(...)` raises an unexpected exception, Knocker
 turns that into a verification failure with a useful `signature_error`
 and stores an orphan delivery rather than crashing the caller.
 
-## Provider registry inspection
+## Provider Registry Inspection
 
-```python
-versions = webhooks.provider_versions()
-# {"stripe": "1.0.0", "github": "1.0.0", "shopify": "1.0.0"}
+```text
+provider_versions()
 ```
 
-`provider_versions()` returns a fresh `dict[str, str]` mapping each
-registered provider name to its implementation SemVer. Use it for
-debugging and release notes; provider versions are not part of any
-Knocker compatibility contract.
+Bindings may expose provider-version inspection for debugging and release
+notes. Provider versions are not part of any Knocker compatibility contract.
 
 ## Generic HMAC verification
 
@@ -245,18 +234,18 @@ secret format) to ship as a curated provider without diluting the
 support promise. It stays available as the explicit
 `verification={...}` config path:
 
-```python
-webhooks.add_endpoint(
-    name="acme",
-    path="/webhooks/acme",
-    verification={
-        "kind": "hmac-sha256",
-        "header": "x-acme-signature",
-        "prefix": "sha256=",
-        "secrets": ["old-secret", "new-secret"],
-    },
-    delivery_key=lambda req: req.headers.get("x-acme-delivery-id"),
-    event_key=lambda req: req.headers.get("x-acme-event-id"),
+```text
+add_endpoint(
+  name="acme",
+  path="/webhooks/acme",
+  verification={
+    kind="hmac-sha256",
+    header="x-acme-signature",
+    prefix="sha256=",
+    secrets=["old-secret", "new-secret"],
+  },
+  delivery_key=<read x-acme-delivery-id>,
+  event_key=<read x-acme-event-id>,
 )
 ```
 

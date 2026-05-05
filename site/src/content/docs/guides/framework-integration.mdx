@@ -9,13 +9,57 @@ Knocker intentionally does not ship framework adapters. Your app owns HTTP routi
 
 A framework adapter would still need to read your framework's request object, preserve the raw signed body, pass headers through, and return a plain status response. That code is short, app-specific, and easier to audit when it lives next to the route it serves.
 
-Keeping this glue in docs also keeps Knocker's package small: no FastAPI, Flask, Django, Starlette, or ASGI dependency choices leak into the durable webhook core.
+Keeping this glue in docs also keeps Knocker's packages small: no web
+framework dependency choices leak into the durable webhook core.
 
-The route glue is small:
+The route glue is small in every framework:
 
 1. read the raw request body bytes exactly as the provider sent them
 2. pass headers and query params through to `receive(...)`
 3. return `result.status_code`
+
+## Generic shape
+
+```text
+route /webhooks/provider:
+  body = read_raw_request_body()
+  headers = read_request_headers()
+  query = read_query_params()
+  result = endpoint.receive(body, headers, query)
+  return HTTP result.status_code
+```
+
+Use `receive(...)` from your route for normal verified ingress. Use
+`ingest(...)` only when another trusted layer has already decided the
+verification outcome.
+
+## Express
+
+```js
+app.post("/webhooks/provider", express.raw({ type: "*/*" }), async (req, res) => {
+  const result = webhooks.receive({
+    endpoint: "provider",
+    body: req.body,
+    headers: req.headers,
+    query: req.query,
+  });
+  res.sendStatus(result.status_code);
+});
+```
+
+## Rails
+
+```ruby
+post "/webhooks/provider" do
+  result = webhooks.receive(
+    endpoint: "provider",
+    body: request.body.read,
+    headers: request.env.select { |key, _| key.start_with?("HTTP_") },
+    query: params.to_h,
+  )
+  status result["status_code"]
+end
+```
 
 ## FastAPI or Starlette
 
@@ -62,18 +106,3 @@ def stripe_webhook(request):
     )
     return HttpResponse(status=result.status_code)
 ```
-
-## Generic shape
-
-```python
-result = stripe.receive(
-    body=raw_body_bytes,
-    headers=headers,
-    query=query_params,
-    method="POST",
-)
-# Return an HTTP response with this status using your framework.
-return response_with_status(result.status_code)
-```
-
-Use `receive(...)` from your route for normal verified ingress. Use `ingest(...)` only when another trusted layer has already decided the verification outcome.

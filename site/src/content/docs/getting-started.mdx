@@ -1,101 +1,48 @@
 ---
 title: Getting started
-description: Install Knocker and store your first webhook in a few minutes.
+description: Pick a binding, store a webhook, and run a worker.
 ---
 
-## Install
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Pick the binding for your runtime. This first run uses Python because it is
-compact, but the durable behavior lives in the shared SQLite extension and
-the repo also includes Node, Bun, Ruby, Go, and Elixir bindings over the
-same contract.
+Knocker is a loadable SQLite extension with thin language bindings. Start
+with the binding for the runtime you actually use:
 
-```bash
-pip install knockerlite
+<CardGrid>
+  <LinkCard title="Bun" href="/reference/bun/" description="Install and use Knocker from Bun." />
+  <LinkCard title="Elixir" href="/reference/elixir/" description="Install and use Knocker from Elixir." />
+  <LinkCard title="Go" href="/reference/go/" description="Install and use Knocker from Go." />
+  <LinkCard title="Node" href="/reference/node/" description="Install and use Knocker from Node." />
+  <LinkCard title="Python" href="/reference/python/" description="Install and use Knocker from Python." />
+  <LinkCard title="Ruby" href="/reference/ruby/" description="Install and use Knocker from Ruby." />
+</CardGrid>
+
+## Same Shape Everywhere
+
+Every binding follows the same product flow:
+
+```text
+open a SQLite database
+register an endpoint with a curated provider and secrets
+read the raw HTTP request body and headers in your route
+call receive(...)
+return result.status_code to the webhook sender
+run a worker against the same SQLite file
+handle the stored event inside Knocker's transaction
 ```
 
-If you are not using Python, jump to [SQLite bindings](/reference/sqlite-bindings/)
-for the equivalent open, receive, worker, operator, and retention shapes.
+`receive(...)` verifies the request, stores a `Delivery`, and, when valid,
+creates or correlates a durable `Event`. Workers can run in the same process
+as ingress or in another process that opens the same SQLite file.
 
-## Open a database and register an endpoint
+Handlers receive a stored event plus a transaction handle. Business writes
+through that transaction commit atomically with Knocker's handled transition
+and queue acknowledgement. If the handler fails, those writes roll back
+before Knocker records retry/dead-letter state.
 
-```python
-import knocker
+## What To Read Next
 
-webhooks = knocker.open("knocker.db")
-
-stripe = webhooks.endpoint(
-    "stripe",
-    path="/webhooks/stripe",
-    provider="stripe",
-    secrets=["whsec_123"],
-)
-```
-
-That gives you:
-
-- a named endpoint row in SQLite
-- Stripe signature verification using the active secret list
-- provider-based extraction of the upstream event id and event type
-
-## Register a handler
-
-```python
-@stripe.handle("checkout.session.completed")
-def handle_checkout(event, tx):
-    tx.query(
-        "INSERT INTO handled_events (event_id, provider_event_id) VALUES (?, ?)",
-        [event.id, event.provider_event_id],
-    )
-```
-
-Handlers receive `(event, tx)`, not a raw request object. They run later against rows already committed to SQLite.
-
-Writes through `tx` commit atomically with Knocker's `handled` transition and queue acknowledgement. Keep handlers synchronous, short, and DB-local; if you need outbound HTTP or slow work, enqueue an app-owned follow-up job from inside the transaction.
-
-## Receive a webhook
-
-In examples, `receive(...)` is shown directly. In a real app, call it from your existing HTTP route after reading the raw body bytes and headers.
-
-```python
-result = stripe.receive(
-    body=b'{"id":"evt_1","type":"checkout.session.completed"}',
-    headers={"stripe-signature": "..."},
-)
-
-assert result.status_code == 204
-```
-
-`receive(...)` verifies the request, stores a `Delivery`, and, when valid, creates or correlates a durable `Event`.
-
-Knocker does not ship framework adapters; see [Framework integration](/guides/framework-integration/) for FastAPI, Starlette, Flask, and generic examples.
-
-## Run the worker
-
-```python
-import asyncio
-
-async def main():
-    stop = asyncio.Event()
-    worker = asyncio.create_task(webhooks.run_worker(stop_event=stop))
-    try:
-        await asyncio.sleep(10)
-    finally:
-        stop.set()
-        await worker
-
-asyncio.run(main())
-```
-
-The worker claims queued event jobs from Honker and dispatches them to your registered handlers. It can run in the same process as ingress or in a separate process that opens the same SQLite file.
-
-`run_worker(...)` is a library primitive, not a daemon supervisor. In production, wrap it in your app's restart policy. You can inspect local process state with `webhooks.worker_states()` and pass `on_error=...` for worker-loop failures outside normal handler retry/dead-letter handling.
-
-## Inspect what landed
-
-```python
-events = webhooks.list_events(limit=10)
-deliveries = webhooks.list_deliveries(limit=10)
-```
-
-Use the operator surface to inspect durable state before you build any app-specific admin routes around it.
+- [Verified ingress](/guides/verified-ingress/) for provider names, secrets, and options.
+- [Framework integration](/guides/framework-integration/) for route glue.
+- [Operator surface](/guides/operators/) for reads, replay, requeue, ignore, and delivery replay.
+- [Retention and pruning](/guides/retention/) for manual and automated cleanup.
