@@ -22,17 +22,10 @@ Knocker is a library, not a service. It should feel local, boring, and durable.
 
 ## Intent Artifacts
 
-Knocker now keeps a small human-owned intent baseline alongside the roadmap:
+Knocker's human-owned intent baseline now lives in the separate `intent` repo:
 
-- `SYSTEM.md` is the current English model of the system.
-- `.intent/phases/001-knocker-foundation/` records the baseline foundation slice.
-- `.intent/phases/002-append-only-delivery-rows/` records the delivery/event split that is now part of the baseline.
-- `.intent/phases/003-operator-read-surface/` records the Python-first operator read/action surface that is now part of the baseline.
-- `.intent/phases/004-minimal-retention-and-pruning/` records the minimal explicit pruning surface that is now part of the baseline.
-- `.intent/phases/005-ship-readiness/` records the docs-site and final pre-release hardening pass.
-- `.intent/phases/006-public-surface-and-reliability-hardening/` records the pre-`0.1.0` response to the intensive codebase review.
-- `.intent/phases/007-provider-registry-and-curated-plugins/` records the public provider plugin shape, `Provider` registry, and the curated GitHub built-in.
-- `.intent/phases/008-provider-conformance-and-internal-cleanup/` records the repo-level provider catalog, conformance fixtures, the `Provider`-instance path on `add_endpoint(...)`, and the `app.queue` / `coercion.py` internal cleanup.
+- `repos/knocker/SYSTEM.md` is the current English model of the system.
+- `repos/knocker/phases/` records the phase history and implementation reviews.
 - `CHANGELOG.md` summarizes completed work after it lands.
 
 ## Current Status
